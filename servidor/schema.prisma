@@ -1,0 +1,151 @@
+// Prisma schema for NexusDMS backend
+// Models cover Users, Projects, Documents, Workflows, and Physical Archive topology.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  DIRECTOR
+  ENGINEER
+  GUEST
+}
+
+enum DocumentSeries {
+  ADM
+  TEC
+}
+
+enum DocumentStatus {
+  DRAFT
+  PENDING_APPROVAL
+  RADICADO
+  VOID
+}
+
+enum DocumentType {
+  LETTER
+  MEMO
+}
+
+enum WorkflowAction {
+  SUBMITTED
+  APPROVED
+  REJECTED
+  RETURNED
+}
+
+model User {
+  id             String      @id @default(cuid())
+  email          String      @unique
+  passwordHash   String
+  fullName       String
+  role           UserRole
+  signaturePin   String?
+  signatureImage String?
+
+  // Relations
+  workflows      Workflow[]
+  documents      Document[]  @relation("DocumentAuthors")
+
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+}
+
+model Project {
+  id           String     @id @default(cuid())
+  code         String     @unique
+  name         String
+  seriesConfig Json       // JSON config for independent counters per series (ADM, TEC)
+
+  // Relations
+  documents    Document[]
+
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model PhysicalArchive {
+  id        String            @id @default(cuid())
+  name      String
+  parentId  String?
+
+  // Hierarchy self-reference
+  parent    PhysicalArchive?  @relation("ArchiveHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children  PhysicalArchive[] @relation("ArchiveHierarchy")
+
+  // Documents stored at this node
+  documents Document[]
+
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+}
+
+model Document {
+  id                String           @id @default(cuid())
+  radicadoCode      String?          @unique
+  type              DocumentType
+  series            DocumentSeries
+  status            DocumentStatus   @default(DRAFT)
+  retentionDate     DateTime?
+  isPhysicalOriginal Boolean         @default(false)
+  metadata          Json
+
+  // Relations
+  projectId         String
+  project           Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  authorId          String?
+  author            User?            @relation("DocumentAuthors", fields: [authorId], references: [id], onDelete: SetNull)
+
+  physicalLocationId String?
+  physicalLocation   PhysicalArchive? @relation(fields: [physicalLocationId], references: [id], onDelete: SetNull)
+
+  workflows         Workflow[]
+
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@index([projectId, series, status])
+  @@index([physicalLocationId])
+}
+
+model Workflow {
+  id          String          @id @default(cuid())
+  action      WorkflowAction
+  comments    String?
+  actedAt     DateTime        @default(now())
+
+  // Relations
+  documentId  String
+  document    Document        @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime        @default(now())
+
+  @@index([documentId, actedAt])
+  @@index([userId])
+}
+
+// Sequence table to guarantee atomic radicado counters per project + series
+model Sequence {
+  id        String         @id @default(cuid())
+  projectId String
+  series    DocumentSeries
+  value     Int            @default(0)
+
+  project   Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@unique([projectId, series], name: "projectId_series")
+}
