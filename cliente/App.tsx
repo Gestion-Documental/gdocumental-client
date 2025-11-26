@@ -100,7 +100,10 @@ const App: React.FC = () => {
              relatedDocId: replyToDoc?.id,
              requiresResponse: false, 
              signatureMethod: SignatureMethod.DIGITAL,
-             author: currentUser?.fullName || 'Usuario'
+             author: currentUser?.fullName || 'Usuario',
+             dispatchMethod: null,
+             dispatchDate: null,
+             emailTrackingStatus: null
          };
          
          setDocuments([newDoc, ...documents]);
@@ -142,7 +145,10 @@ const App: React.FC = () => {
           
           receptionMedium: data.receptionMedium,
           isPhysicalOriginal: data.receptionMedium === 'PHYSICAL',
-          author: currentUser?.fullName || 'Recepción'
+          author: currentUser?.fullName || 'Recepción',
+          dispatchMethod: null,
+          dispatchDate: null,
+          emailTrackingStatus: null
       };
 
       const radicatedDoc = simulateRadication(newDoc, activeProject, SignatureMethod.PHYSICAL);
@@ -229,6 +235,29 @@ const App: React.FC = () => {
       alert(`Transferencia Primaria exitosa. ${docIds.length} expedientes movidos al Archivo Central.\n\nSe ha generado el Acta de Transferencia en PDF (Simulado).`);
   };
 
+  const handleDispatchUpdate = (docId: string, payload: { method: 'NEXUS_MAIL' | 'EXTERNAL_CLIENT'; dispatchDate: string; emailTrackingStatus: 'SENT' | 'OPENED' | 'CLICKED'; dispatchUser?: string; trackingId?: string; }) => {
+      const updatedDocs = documents.map(d => {
+          if (d.id === docId) {
+              return {
+                  ...d,
+                  dispatchMethod: payload.method,
+                  dispatchDate: payload.dispatchDate,
+                  emailTrackingStatus: payload.emailTrackingStatus,
+                  metadata: {
+                      ...d.metadata,
+                      dispatchUser: payload.dispatchUser,
+                      dispatchTrackingId: payload.trackingId
+                  }
+              } as Document;
+          }
+          return d;
+      });
+      setDocuments(updatedDocs);
+      if (dossierDoc && dossierDoc.id === docId) {
+          setDossierDoc(updatedDocs.find(d => d.id === docId) || null);
+      }
+  };
+
   // --- RENDER LOGIC ---
 
   if (!currentUser) {
@@ -270,6 +299,8 @@ const App: React.FC = () => {
             onRegisterDelivery={handleRegisterDelivery}
             onAssignLocation={handleAssignLocation}
             onVoidDocument={handleVoidDocument}
+            onDispatchUpdate={(payload) => handleDispatchUpdate(dossierDoc.id, payload)}
+            currentUserName={currentUser.fullName}
         />;
     }
 

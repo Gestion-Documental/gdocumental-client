@@ -173,6 +173,11 @@ export interface Document {
   receivedBy?: string;
   receivedAt?: string;
   deliveryProof?: string; // URL to image/scan
+
+  // --- EMAIL DISPATCH TRACKING ---
+  dispatchMethod?: 'NEXUS_MAIL' | 'EXTERNAL_CLIENT' | null;
+  dispatchDate?: string | null;
+  emailTrackingStatus?: 'SENT' | 'OPENED' | 'CLICKED' | null;
   
   // --- INBOUND / PHYSICAL TRACKING ---
   receptionMedium?: ReceptionMedium; // New Field

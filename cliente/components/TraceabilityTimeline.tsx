@@ -90,6 +90,19 @@ const TraceabilityTimeline: React.FC<TraceabilityTimelineProps> = ({ documents, 
                    <p className="text-xs text-slate-500 font-mono truncate">
                        {doc.radicadoCode || 'Pendiente de Radicación'}
                    </p>
+
+                   {doc.dispatchMethod && (
+                      <div className="mt-2 text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded p-2">
+                          {doc.dispatchMethod === 'NEXUS_MAIL' ? (
+                              <p className="font-semibold">Enviado vía Sistema (ID: {doc.metadata?.dispatchTrackingId || doc.radicadoCode || doc.id})</p>
+                          ) : (
+                              <p className="font-semibold">Despachado externamente por usuario {doc.metadata?.dispatchUser || 'Usuario'}</p>
+                          )}
+                          <p className="text-[10px] text-blue-500 mt-1">
+                            {doc.dispatchDate ? new Date(doc.dispatchDate).toLocaleString() : '--'} · Estado: {doc.emailTrackingStatus || 'SENT'}
+                          </p>
+                      </div>
+                   )}
                    
                    {/* Connector Line to Center */}
                    {!isCenter && (

@@ -6,21 +6,25 @@ import LabelGenerator, { LabelMode } from './LabelGenerator';
 import DeliveryRegistrationModal from './DeliveryRegistrationModal';
 import ArchiveAssignmentModal from './ArchiveAssignmentModal'; 
 import { getArchivePath } from '../services/mockData'; 
+import EmailDispatchModal from './EmailDispatchModal';
 
 interface DossierViewProps {
   document: Document;
   userRole: UserRole;
+  currentUserName: string;
   onClose: () => void;
   onRegisterDelivery?: (docId: string, data: { receivedBy: string; receivedAt: string; proof: string }) => void;
   onAssignLocation?: (docId: string, locationId: string) => void; 
   onVoidDocument?: (docId: string, reason: string) => void;
+  onDispatchUpdate?: (payload: { method: 'NEXUS_MAIL' | 'EXTERNAL_CLIENT'; dispatchDate: string; emailTrackingStatus: 'SENT' | 'OPENED' | 'CLICKED'; dispatchUser?: string; trackingId?: string }) => void;
 }
 
-const DossierView: React.FC<DossierViewProps> = ({ document, userRole, onClose, onRegisterDelivery, onAssignLocation, onVoidDocument }) => {
+const DossierView: React.FC<DossierViewProps> = ({ document, userRole, currentUserName, onClose, onRegisterDelivery, onAssignLocation, onVoidDocument, onDispatchUpdate }) => {
   const [isZipping, setIsZipping] = useState(false);
   const [showLabelGenerator, setShowLabelGenerator] = useState(false);
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
   const [showArchiveModal, setShowArchiveModal] = useState(false); 
+  const [showEmailModal, setShowEmailModal] = useState(false);
   
   const attachments = document.metadata?.attachments || [];
 
@@ -290,6 +294,22 @@ const DossierView: React.FC<DossierViewProps> = ({ document, userRole, onClose, 
                              <p className="text-[10px] text-slate-400 uppercase font-bold">Asunto</p>
                              <p className="text-sm font-medium text-slate-800">{document.title}</p>
                         </div>
+                        {document.dispatchMethod && (
+                            <div className="col-span-2 bg-white border border-slate-200 rounded-lg p-3">
+                                <div className="flex items-center gap-2 mb-1">
+                                    <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                                    <p className="text-xs font-bold uppercase text-slate-600">Despacho por Email</p>
+                                </div>
+                                <p className="text-sm text-slate-800 font-semibold">
+                                    {document.dispatchMethod === 'NEXUS_MAIL' ? 'Enviado vía Sistema (Nexus Mail)' : 'Despachado externamente por usuario'}
+                                </p>
+                                <p className="text-xs text-slate-500 mt-1">
+                                    {document.dispatchDate ? new Date(document.dispatchDate).toLocaleString() : '--'} · Estado: {document.emailTrackingStatus || 'N/A'}
+                                    {document.metadata?.dispatchTrackingId && ` · ID: ${document.metadata.dispatchTrackingId}`}
+                                    {document.metadata?.dispatchUser && ` · Responsable: ${document.metadata.dispatchUser}`}
+                                </p>
+                            </div>
+                        )}
                         {isVoid && (
                             <div className="col-span-2 bg-red-50 p-2 rounded border border-red-100">
                                 <p className="text-[10px] text-red-500 uppercase font-bold">Causa de Anulación</p>
@@ -345,6 +365,14 @@ const DossierView: React.FC<DossierViewProps> = ({ document, userRole, onClose, 
 
 
                 <div className="space-y-3 mt-auto">
+                    {document.status === DocumentStatus.RADICADO && !isVoid && (
+                        <button
+                          onClick={() => setShowEmailModal(true)}
+                          className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold shadow-md flex items-center justify-center gap-2 transition-all"
+                        >
+                            📧 Enviar por Email
+                        </button>
+                    )}
                     
                     {!isVoid && (
                         <button 
@@ -409,6 +437,15 @@ const DossierView: React.FC<DossierViewProps> = ({ document, userRole, onClose, 
              onClose={() => setShowDeliveryModal(false)}
              onConfirm={handleDeliveryConfirm}
           />
+      )}
+
+      {showEmailModal && (
+        <EmailDispatchModal 
+            document={document}
+            currentUserName={currentUserName}
+            onClose={() => setShowEmailModal(false)}
+            onConfirm={(payload) => onDispatchUpdate && onDispatchUpdate(payload)}
+        />
       )}
 
       {/* Archive Assignment Modal */}
