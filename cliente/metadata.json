@@ -1,0 +1,5 @@
+{
+  "name": "documental-client",
+  "description": "A Corporate Document Management System prototype demonstrating strict context isolation and robust sequence generation logic.",
+  "requestFramePermissions": []
+}

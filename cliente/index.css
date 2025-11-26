@@ -1,0 +1,53 @@
+@import "@fontsource/inter/variable.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: "InterVariable", "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.tox-tinymce {
+  border: none !important;
+  border-radius: 0 !important;
+}
+
+.tox .tox-editor-header {
+  background-color: #ffffff !important;
+  border-bottom: 1px solid #f1f5f9 !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05) !important;
+  padding: 8px 20mm !important;
+  z-index: 10 !important;
+}
+
+.tox .tox-tbtn {
+  height: 28px !important;
+  margin: 0 2px !important;
+}
+
+.tox .tox-tbtn:hover {
+  background: #f1f5f9 !important;
+}
+
+.tox-statusbar {
+  display: none !important;
+}

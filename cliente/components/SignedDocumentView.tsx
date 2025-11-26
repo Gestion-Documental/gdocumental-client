@@ -1,0 +1,281 @@
+
+import React, { useRef, useState } from 'react';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
+import { Document } from '../types';
+
+interface SignedDocumentViewProps {
+  document: Document;
+  onClose: () => void;
+}
+
+const SignedDocumentView: React.FC<SignedDocumentViewProps> = ({ document, onClose }) => {
+  const paperRef = useRef<HTMLDivElement>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const handleDownloadPDF = async () => {
+    if (!paperRef.current) {
+      console.error("Document element missing");
+      return;
+    }
+
+    setIsDownloading(true);
+
+    try {
+        // 1. Capture the DOM element as a canvas
+        // Scale 2 provides retina-like quality for text
+        const canvas = await html2canvas(paperRef.current, {
+            scale: 2,
+            useCORS: true,
+            allowTaint: true,
+            logging: false,
+            backgroundColor: '#ffffff'
+        });
+
+        // 2. Convert to Image Data
+        const imgData = canvas.toDataURL('image/png');
+
+        // 3. Initialize PDF (A4 Size: 210mm x 297mm)
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        
+        const pdfWidth = 210;
+        const pdfHeight = 297;
+
+        // 4. Add Image to PDF
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+
+        // 5. Save
+        const filename = `${document.radicadoCode || 'document'}.pdf`;
+        pdf.save(filename);
+
+    } catch (error) {
+        console.error("PDF Generation failed:", error);
+        alert("Error generating PDF. Please try again.");
+    } finally {
+        setIsDownloading(false);
+    }
+  };
+
+  const comments = document.metadata?.comments || [];
+  const attachments = document.metadata?.attachments || [];
+  const ccList = document.metadata?.ccList || [];
+
+  return (
+    <div className="flex flex-col h-full animate-fade-in">
+      {/* Header */}
+      <div className="flex justify-between items-center mb-6">
+        <div>
+           <div className="flex items-center gap-2 mb-1">
+              <span className="w-2 h-2 rounded-full bg-green-500"></span>
+              <h2 className="text-xl font-bold text-slate-900">Documento Radicado</h2>
+           </div>
+           <p className="text-sm text-slate-500">ID de Transacción: <span className="font-mono text-slate-700">{document.id}</span></p>
+        </div>
+        <div className="flex gap-3">
+           <button onClick={onClose} className="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg font-medium transition-colors">Volver al Dashboard</button>
+           <button 
+             onClick={handleDownloadPDF}
+             disabled={isDownloading}
+             className={`px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-medium shadow-lg flex items-center gap-2 transition-all ${isDownloading ? 'opacity-70 cursor-wait' : ''}`}
+           >
+              {isDownloading ? (
+                <>
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Generando PDF...
+                </>
+              ) : (
+                <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                    Descargar PDF Firmado
+                </>
+              )}
+           </button>
+        </div>
+      </div>
+
+      <div className="flex flex-col lg:flex-row gap-8 flex-1 overflow-hidden">
+          
+          {/* LEFT: The Paper Preview */}
+          <div className="flex-1 bg-slate-200 rounded-xl overflow-y-auto p-8 flex justify-center shadow-inner">
+            <div ref={paperRef} className="bg-white w-[210mm] min-h-[297mm] shadow-2xl relative p-[20mm] flex flex-col">
+                
+                {/* Watermark */}
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-[0.03] pointer-events-none select-none">
+                    <svg width="400" height="400" viewBox="0 0 100 100">
+                        <text x="50" y="50" fontSize="20" fontWeight="bold" transform="rotate(-45 50 50)" textAnchor="middle" fill="currentColor">OFFICIAL COPY</text>
+                    </svg>
+                </div>
+
+                {/* Header (Simulated for template) */}
+                <div className="mb-8 border-b-2 border-slate-900 pb-4 flex justify-between items-end">
+                    <div>
+                        <h1 className="text-2xl font-serif font-bold text-slate-900 uppercase tracking-widest">Nexus<span className="text-blue-900">DMS</span></h1>
+                        <p className="text-xs text-slate-500">Enterprise Document Management</p>
+                    </div>
+                    <div className="text-right">
+                        <p className="text-xs font-bold text-slate-400 uppercase">Radicado Oficial</p>
+                        <p className="text-lg font-mono font-bold text-slate-900">{document.radicadoCode}</p>
+                    </div>
+                </div>
+
+                {/* Content */}
+                <div 
+                className="text-justify text-sm leading-7 whitespace-pre-wrap font-serif min-h-[400px]"
+                dangerouslySetInnerHTML={{ __html: document.content || '' }}
+                />
+
+                {/* ATTACHMENT LIST STAMP (Auto-Injected) */}
+                {attachments.length > 0 && (
+                    <div className="mb-6 mt-4 border-t border-dashed border-slate-300 pt-4">
+                        <p className="text-xs font-bold font-sans text-slate-800 mb-2 uppercase">Anexos Relacionados:</p>
+                        <ul className="text-xs font-mono text-slate-600 list-disc pl-4 space-y-1">
+                            {attachments.map(att => (
+                                <li key={att.id}>
+                                    {att.name} <span className="opacity-50">({att.size})</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+
+                {/* Footer Area */}
+                <div className="mt-auto relative">
+                    <div className="flex justify-between items-end">
+                    
+                        {/* Signature Stamp */}
+                        <div className="relative">
+                            {document.signatureImage && (
+                                <img 
+                                    src={document.signatureImage} 
+                                    alt="Signature" 
+                                    className="h-20 -mb-4 ml-4 opacity-90 transform -rotate-2"
+                                />
+                            )}
+                            <div className="border-t border-slate-900 w-48 mt-2 pt-1 text-center">
+                                <p className="text-xs font-bold uppercase text-slate-900">Firma Autorizada</p>
+                                <p className="text-[10px] text-slate-500">Firmado digitalmente via NexusDMS</p>
+                            </div>
+                        </div>
+
+                        {/* QR Stamp */}
+                        <div className="flex gap-3 items-end opacity-90">
+                            <div className="text-right">
+                                <p className="text-[9px] text-slate-400 font-mono mb-0.5">Hash: {document.securityHash?.substring(0,16)}...</p>
+                                <p className="text-[9px] text-slate-400 font-mono">{new Date(document.updatedAt || '').toLocaleString()}</p>
+                            </div>
+                            <div className="w-20 h-20 bg-white p-1 border border-slate-900">
+                                    {/* CSS QR Simulation */}
+                                    <div className="w-full h-full bg-white grid grid-cols-6 grid-rows-6 gap-0.5">
+                                        {[...Array(36)].map((_,i) => (
+                                            <div key={i} className={`w-full h-full ${Math.random() > 0.4 ? 'bg-black' : 'bg-transparent'} ${(i<7 || i > 28 || (i+1)%6===0) ? 'bg-black' : ''}`}></div>
+                                        ))}
+                                    </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    {/* Carbon Copy (CC) List - Footer Stamp */}
+                    {ccList.length > 0 && (
+                        <div className="mt-8 pt-2 border-t border-slate-100">
+                            <p className="text-[10px] text-slate-600 font-sans leading-relaxed">
+                                <strong className="font-bold text-slate-800">c.c.</strong> {ccList.join(', ')}
+                            </p>
+                        </div>
+                    )}
+                </div>
+
+            </div>
+          </div>
+
+          {/* RIGHT: Audit Log Sidebar */}
+          <div className="w-96 bg-white border-l border-slate-200 shadow-xl flex flex-col">
+              <div className="p-4 border-b border-slate-100 bg-slate-50">
+                  <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                    <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                    Historial de Auditoría
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1">Registro inmutable de eventos</p>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-4 space-y-6">
+                 
+                 {/* Event: Creation */}
+                 <div className="relative pl-6 border-l-2 border-slate-200 pb-2">
+                    <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-slate-200 border-2 border-white"></div>
+                    <p className="text-xs text-slate-400 font-mono mb-1">{new Date(document.createdAt).toLocaleString()}</p>
+                    <p className="text-sm font-medium text-slate-700">Documento Creado</p>
+                    <p className="text-xs text-slate-500">Estado inicial: DRAFT</p>
+                 </div>
+
+                 {/* Comments & System Events */}
+                 {comments.map((comment, idx) => {
+                     // Determine style based on event type
+                     const isAudit = comment.text.includes('AUDITORÍA');
+                     const isRejection = comment.text.includes('Devuelto');
+                     
+                     let iconColor = 'bg-blue-100 border-blue-500';
+                     if (isAudit) iconColor = 'bg-yellow-100 border-yellow-500';
+                     if (isRejection) iconColor = 'bg-red-100 border-red-500';
+
+                     return (
+                        <div key={idx} className="relative pl-6 border-l-2 border-slate-200 pb-2">
+                            <div className={`absolute -left-[9px] top-0 w-4 h-4 rounded-full border-2 border-white ${iconColor}`}></div>
+                            <p className="text-xs text-slate-400 font-mono mb-1">{new Date(comment.createdAt).toLocaleString()}</p>
+                            
+                            {isAudit ? (
+                                <div className="bg-yellow-50 border border-yellow-200 rounded p-3 text-xs text-yellow-800">
+                                    <strong className="block mb-1 font-bold">⚠️ INTERVENCIÓN SUPERVISADA</strong>
+                                    {comment.text.replace('⚠️ AUDITORÍA: ', '')}
+                                    
+                                    {/* DIFF VIEW */}
+                                    {comment.changes && (
+                                        <div className="mt-2 text-[10px] font-mono border-t border-yellow-200 pt-2 grid gap-2">
+                                            <div>
+                                                <span className="text-red-700 font-bold uppercase block text-[9px] mb-0.5">Versión Original:</span>
+                                                <div className="bg-red-50 text-red-800 p-1.5 rounded line-through opacity-70 break-all border border-red-100">
+                                                    {comment.changes.original.substring(0, 150)}...
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <span className="text-green-700 font-bold uppercase block text-[9px] mb-0.5">Versión Final:</span>
+                                                <div className="bg-green-50 text-green-900 p-1.5 rounded border border-green-200 break-all font-semibold">
+                                                    {comment.changes.modified.substring(0, 150)}...
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            ) : isRejection ? (
+                                <div className="bg-red-50 border border-red-200 rounded p-3 text-xs text-red-800">
+                                    <strong className="block mb-1 font-bold">⛔ RECHAZO DE CALIDAD</strong>
+                                    {comment.text}
+                                </div>
+                            ) : (
+                                <div>
+                                    <p className="text-sm font-medium text-slate-700">Comentario: {comment.author}</p>
+                                    <p className="text-xs text-slate-500 italic">"{comment.text}"</p>
+                                </div>
+                            )}
+                        </div>
+                     );
+                 })}
+
+                 {/* Event: Radication */}
+                 <div className="relative pl-6 border-l-2 border-green-200 pb-2">
+                    <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-green-500 border-2 border-white shadow-sm"></div>
+                    <p className="text-xs text-slate-400 font-mono mb-1">{new Date(document.updatedAt || document.createdAt).toLocaleString()}</p>
+                    <p className="text-sm font-bold text-green-700">Radicación Exitosa</p>
+                    <p className="text-xs text-slate-500">Código: {document.radicadoCode}</p>
+                 </div>
+
+              </div>
+          </div>
+      </div>
+    </div>
+  );
+};
+
+export default SignedDocumentView;
