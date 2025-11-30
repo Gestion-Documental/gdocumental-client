@@ -7,7 +7,7 @@ import {
 import { 
   getDocumentThread 
 } from './services/mockData';
-import { login as apiLogin, fetchDocuments, createInboundDocument, radicarDocument, fetchProjects, createDocument, uploadAttachment } from './services/api';
+import { login as apiLogin, fetchDocuments, createInboundDocument, radicarDocument, fetchProjects, createDocument, uploadAttachment, fetchDocument, deleteAttachment, updateDelivery, updateDocument, updateStatus, API_URL } from './services/api';
 
 import LoginPage from './components/LoginPage';
 import AdminDashboard from './components/AdminDashboard';
@@ -177,31 +177,29 @@ const App: React.FC = () => {
           receptionMedium: data.receptionMedium,
         };
         const created = await createInboundDocument(token, payload);
-        setDocuments([created, ...documents]);
+        if (data.file) {
+          await uploadAttachment(token, created.id, data.file);
+        }
+        const refreshed = await fetchDocument(token, created.id);
+        setDocuments([refreshed, ...documents]);
         setIsInboundRegistering(false);
-        setDossierDoc(created);
+        setDossierDoc(refreshed);
       } catch (error: any) {
         alert(error.message || 'No se pudo registrar la entrada');
       }
   };
   
   const handleRegisterDelivery = (docId: string, data: { receivedBy: string; receivedAt: string; proof: string }) => {
-      const updatedDocs = documents.map(d => {
-          if (d.id === docId) {
-              return {
-                  ...d,
-                  deliveryStatus: 'DELIVERED',
-                  receivedBy: data.receivedBy,
-                  receivedAt: data.receivedAt,
-                  deliveryProof: data.proof
-              } as Document;
+      if (!token) return;
+      updateDelivery(token, docId, data)
+        .then(async () => {
+          const updated = await fetchDocument(token, docId);
+          setDocuments(docs => docs.map(d => d.id === updated.id ? updated : d));
+          if (dossierDoc && dossierDoc.id === docId) {
+               setDossierDoc(updated);
           }
-          return d;
-      });
-      setDocuments(updatedDocs);
-      if (dossierDoc && dossierDoc.id === docId) {
-           setDossierDoc(updatedDocs.find(d => d.id === docId) || null);
-      }
+        })
+        .catch(err => alert(err.message || 'No se pudo registrar la entrega'));
   };
 
   const handleAssignLocation = (docId: string, locationId: string) => {
@@ -218,28 +216,27 @@ const App: React.FC = () => {
   }
 
   const handleVoidDocument = (docId: string, reason: string) => {
-      const updatedDocs = documents.map(d => {
-          if (d.id === docId) {
-              return { 
-                  ...d, 
-                  status: DocumentStatus.VOID,
-                  metadata: {
-                      ...d.metadata,
-                      voidReason: reason,
-                      voidedBy: currentUser?.role,
-                      voidedAt: new Date().toISOString()
-                  }
-              } as Document;
+      if (!token) return;
+      (async () => {
+        try {
+          await updateDocument(token, docId, {
+            metadata: {
+              ...(documents.find(d => d.id === docId)?.metadata || {}),
+              voidReason: reason,
+              voidedBy: currentUser?.fullName,
+              voidedAt: new Date().toISOString()
+            }
+          });
+          await updateStatus(token, docId, DocumentStatus.VOID);
+          const updated = await fetchDocument(token, docId);
+          setDocuments(docs => docs.map(d => d.id === updated.id ? updated : d));
+          if (dossierDoc && dossierDoc.id === docId) {
+              setDossierDoc(updated);
           }
-          return d;
-      });
-      setDocuments(updatedDocs);
-      
-      // Update local view states if necessary
-      if (dossierDoc && dossierDoc.id === docId) {
-          const updatedDoc = updatedDocs.find(d => d.id === docId);
-          setDossierDoc(updatedDoc || null);
-      }
+        } catch (err: any) {
+          alert(err.message || 'No se pudo anular el documento');
+        }
+      })();
   };
 
   const handleTransferBatch = (docIds: string[]) => {
@@ -285,6 +282,18 @@ const App: React.FC = () => {
       }
   };
 
+  const handleDeleteAttachment = async (docId: string, attachmentId: string) => {
+    if (!token) return;
+    try {
+      await deleteAttachment(token, docId, attachmentId);
+      const updated = await fetchDocument(token, docId);
+      setDocuments(docs => docs.map(d => d.id === updated.id ? updated : d));
+      if (dossierDoc && dossierDoc.id === docId) setDossierDoc(updated);
+    } catch (err: any) {
+      alert(err.message || 'No se pudo eliminar el adjunto');
+    }
+  };
+
   // --- RENDER LOGIC ---
 
   if (!currentUser) {
@@ -328,6 +337,8 @@ const App: React.FC = () => {
             onVoidDocument={handleVoidDocument}
             onDispatchUpdate={(payload) => handleDispatchUpdate(dossierDoc.id, payload)}
             currentUserName={currentUser.fullName}
+            onDeleteAttachment={(attId) => handleDeleteAttachment(dossierDoc.id, attId)}
+            apiBaseUrl={API_URL}
         />;
     }
 
@@ -424,7 +435,15 @@ const App: React.FC = () => {
                         setReplyToDoc(null);
                         setIsEditorOpen(true);
                     }}
-                    onViewDossier={(doc) => setDossierDoc(doc)}
+                    onViewDossier={async (doc) => {
+                        if (!token) return;
+                        try {
+                          const fullDoc = await fetchDocument(token, doc.id);
+                          setDossierDoc(fullDoc);
+                        } catch {
+                          setDossierDoc(doc);
+                        }
+                    }}
                     onVoid={(doc) => handleVoidDocument(doc.id, window.prompt("⚠️ Motivo de la anulación (Obligatorio ISO 9001):") || "")}
                  />
              </div>

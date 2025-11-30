@@ -17,16 +17,18 @@ interface DossierViewProps {
   onAssignLocation?: (docId: string, locationId: string) => void; 
   onVoidDocument?: (docId: string, reason: string) => void;
   onDispatchUpdate?: (payload: { method: 'NEXUS_MAIL' | 'EXTERNAL_CLIENT'; dispatchDate: string; emailTrackingStatus: 'SENT' | 'OPENED' | 'CLICKED'; dispatchUser?: string; trackingId?: string }) => void;
+  onDeleteAttachment?: (attachmentId: string) => void;
+  apiBaseUrl?: string;
 }
 
-const DossierView: React.FC<DossierViewProps> = ({ document, userRole, currentUserName, onClose, onRegisterDelivery, onAssignLocation, onVoidDocument, onDispatchUpdate }) => {
+const DossierView: React.FC<DossierViewProps> = ({ document, userRole, currentUserName, onClose, onRegisterDelivery, onAssignLocation, onVoidDocument, onDispatchUpdate, onDeleteAttachment, apiBaseUrl }) => {
   const [isZipping, setIsZipping] = useState(false);
   const [showLabelGenerator, setShowLabelGenerator] = useState(false);
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
   const [showArchiveModal, setShowArchiveModal] = useState(false); 
   const [showEmailModal, setShowEmailModal] = useState(false);
   
-  const attachments = document.metadata?.attachments || [];
+  const attachments = document.attachments && document.attachments.length > 0 ? document.attachments : (document.metadata?.attachments || []);
 
   const handleDownloadZip = () => {
     setIsZipping(true);
@@ -165,11 +167,25 @@ const DossierView: React.FC<DossierViewProps> = ({ document, userRole, currentUs
                     <div className="mb-6 mt-4 border-t border-dashed border-slate-300 pt-4">
                         <p className="text-xs font-bold font-sans text-slate-800 mb-2 uppercase">Anexos Relacionados:</p>
                         <ul className="text-xs font-mono text-slate-600 list-disc pl-4 space-y-1">
-                            {attachments.map(att => (
-                                <li key={att.id}>
-                                    {att.name} <span className="opacity-50">({att.size})</span>
-                                </li>
-                            ))}
+                            {attachments.map(att => {
+                                const downloadUrl = att.url || (att.id ? `${apiBaseUrl || ''}/documents/attachments/${att.id}/download` : '#');
+                                return (
+                                  <li key={att.id} className="flex items-center gap-2">
+                                      <a href={downloadUrl} className="text-blue-600 hover:underline" target="_blank" rel="noreferrer">
+                                        {att.name || att.filename || 'Adjunto'}
+                                      </a>
+                                      {att.size && <span className="opacity-50">({att.size})</span>}
+                                      {onDeleteAttachment && (
+                                        <button
+                                          onClick={() => onDeleteAttachment(att.id)}
+                                          className="text-red-500 hover:text-red-700 ml-2"
+                                        >
+                                          eliminar
+                                        </button>
+                                      )}
+                                  </li>
+                                );
+                            })}
                         </ul>
                     </div>
                 )}
