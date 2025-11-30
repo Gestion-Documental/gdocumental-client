@@ -136,7 +136,7 @@ model Document {
   series            DocumentSeries
   status            DocumentStatus   @default(DRAFT)
   title             String
-  content           String?
+  content           String?          @db.LongText
   retentionDate     DateTime?
   isPhysicalOriginal Boolean         @default(false)
   metadata          Json

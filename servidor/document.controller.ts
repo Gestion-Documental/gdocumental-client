@@ -313,13 +313,17 @@ router.post(
     try {
       const { projectId, type, series, metadata, title, content, retentionDate, isPhysicalOriginal, physicalLocationId } = req.body;
 
+      if (!projectId || !type || !series) {
+        return res.status(400).json({ error: 'Faltan campos obligatorios (projectId, type, series)' });
+      }
+
       const doc = await prisma.document.create({
         data: {
           projectId,
-          type,
-          series,
+          type: type as any,
+          series: series as any,
           status: DocumentStatus.DRAFT,
-          metadata,
+          metadata: metadata ?? {},
           title,
           content: content || null,
           retentionDate,
