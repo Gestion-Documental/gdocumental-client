@@ -1,10 +1,11 @@
 
 import React, { useState } from 'react';
-import { User, SystemRole } from '../types';
+import { User } from '../types';
 import { MOCK_USERS } from '../services/mockData';
+import { login as apiLogin } from '../services/api';
 
 interface LoginPageProps {
-  onLogin: (user: User) => void;
+  onLogin: (user: User, token: string) => void;
 }
 
 const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
@@ -18,36 +19,32 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
     setError('');
     setIsLoading(true);
 
-    setTimeout(() => {
-      // Mock Auth Logic
-      const foundUser = MOCK_USERS.find(u => u.email.toLowerCase() === email.toLowerCase());
-      
-      if (foundUser && password.length >= 3) { // Mock password check
-        onLogin(foundUser);
-      } else {
-        setError('Credenciales inválidas. Pruebe: admin@nexus.com, director@nexus.com, user@nexus.com (Pass: 1234)');
+    apiLogin(email, password)
+      .then(({ token, user }) => {
+        onLogin(user as User, token);
         setIsLoading(false);
-      }
-    }, 1500);
+      })
+      .catch((err) => {
+        setError(err.message || 'Error al iniciar sesión');
+        setIsLoading(false);
+      });
   };
 
   return (
-    <div className="min-h-screen flex">
-      {/* LEFT: Branding Image */}
-      <div className="hidden lg:block lg:w-1/2 relative">
-        <img 
-          src="https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?ixlib=rb-1.2.1&auto=format&fit=crop&w=1920&q=80" 
-          alt="Office Building" 
-          className="absolute inset-0 w-full h-full object-cover"
-        />
-        <div className="absolute inset-0 bg-blue-900/40 backdrop-blur-[2px] flex flex-col justify-center px-12 text-white">
-           <div className="w-16 h-16 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm mb-6 shadow-lg">
-              <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
-           </div>
-           <h1 className="text-5xl font-bold mb-4 tracking-tight">Nexus<span className="text-blue-200">DMS</span></h1>
-           <p className="text-xl text-blue-50 max-w-md leading-relaxed">
-             Gestión Documental Inteligente para la empresa moderna. Trazabilidad, seguridad y cumplimiento ISO 9001 garantizado.
-           </p>
+    <div className="min-h-screen flex bg-slate-50">
+      {/* LEFT: Branding Gradient */}
+      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden min-h-screen">
+        <div className="absolute inset-0 bg-gradient-to-br from-[#4B8DFF] via-[#4B8DFF] to-[#5EE0C8]" />
+        <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=2000&q=80')] bg-cover bg-center mix-blend-overlay opacity-70" />
+        <div className="absolute inset-0 bg-black/25" />
+        <div className="relative z-10 flex flex-col justify-center px-12 text-white space-y-4">
+           <div className="w-16 h-16 bg-white/15 rounded-2xl flex items-center justify-center backdrop-blur-sm shadow-lg">
+             <img src="/src/logos/radika_favicon.png" alt="Radika" className="w-12 h-12 rounded-lg" />
+          </div>
+          <h1 className="text-5xl font-bold tracking-tight drop-shadow-lg" style={{ fontFamily: 'Montserrat, Inter, sans-serif' }}>Radika</h1>
+          <p className="text-xl text-white/90 max-w-lg leading-relaxed drop-shadow">
+            Gestión documental y radicación inteligente, trazabilidad en tiempo real y cumplimiento ISO 9001 garantizado.
+          </p>
         </div>
       </div>
 
@@ -55,7 +52,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
       <div className="w-full lg:w-1/2 flex flex-col justify-center items-center bg-white p-8">
          <div className="w-full max-w-md">
             <div className="text-center mb-10 lg:text-left">
-                <h2 className="text-3xl font-bold text-slate-900">Iniciar Sesión</h2>
+                <h2 className="text-3xl font-bold text-slate-900" style={{ fontFamily: 'Montserrat, Inter, sans-serif' }}>Iniciar Sesión</h2>
                 <p className="text-slate-500 mt-2">Acceda a su cuenta corporativa segura.</p>
             </div>
 
@@ -78,7 +75,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                         required
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        className="block w-full pl-10 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                        className="block w-full pl-10 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#4B8DFF] focus:border-[#4B8DFF] outline-none transition-all"
                         placeholder="nombre@empresa.com"
                       />
                    </div>
@@ -98,7 +95,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                         required
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        className="block w-full pl-10 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                        className="block w-full pl-10 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#4B8DFF] focus:border-[#4B8DFF] outline-none transition-all"
                         placeholder="••••••••"
                       />
                    </div>
@@ -107,7 +104,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                 <button 
                   type="submit"
                   disabled={isLoading}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-500/30 transition-all flex items-center justify-center gap-2"
+                  className="w-full bg-[#4B8DFF] hover:bg-[#3B7AE6] text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-500/30 transition-all flex items-center justify-center gap-2"
                 >
                   {isLoading ? (
                     <>
@@ -128,7 +125,14 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                         <button
                             key={user.id}
                             type="button"
-                            onClick={() => onLogin(user)}
+                            onClick={() => {
+                              setEmail(user.email);
+                              setPassword('1234');
+                              // dispara el login real
+                              apiLogin(user.email, '1234')
+                                .then(({ token, user: u }) => onLogin(u as User, token))
+                                .catch(() => onLogin(user, 'mock-token'));
+                            }}
                             className="flex flex-col items-center p-3 border border-slate-200 rounded-xl hover:bg-slate-50 hover:border-blue-300 hover:shadow-md transition-all group bg-white"
                         >
                             <div className="w-10 h-10 rounded-full bg-slate-100 mb-2 overflow-hidden border-2 border-white shadow-sm group-hover:scale-105 transition-transform">

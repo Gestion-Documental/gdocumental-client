@@ -8,6 +8,8 @@ import { getArchivePath, getSeriesName } from '../services/mockData';
 interface DocumentListProps {
   documents: Document[];
   userRole: UserRole;
+  attentionFilter?: boolean;
+  onClearAttentionFilter?: () => void;
   isTransferView?: boolean; // New Prop: Enable Transfer Mode
   onOpenFinalizeModal: (doc: Document) => void;
   onViewThread: (doc: Document) => void;
@@ -22,7 +24,8 @@ interface DocumentListProps {
 type TabOption = 'ALL' | 'APPROVALS';
 
 const DocumentList: React.FC<DocumentListProps> = ({ 
-    documents, userRole, isTransferView = false,
+    documents, userRole, attentionFilter = false, onClearAttentionFilter,
+    isTransferView = false,
     onOpenFinalizeModal, onViewThread, onReply, onEdit, onViewDossier, onVoid,
     onTransferBatch, onCloseTransferView
 }) => {
@@ -136,6 +139,8 @@ const DocumentList: React.FC<DocumentListProps> = ({
 
   // --- FILTER LOGIC ---
   const filteredDocs = useMemo(() => {
+    const now = Date.now();
+    const oneDay = 24 * 60 * 60 * 1000;
     return documents.filter(doc => {
       // 0. Transfer View Logic
       if (isTransferView) {
@@ -144,6 +149,17 @@ const DocumentList: React.FC<DocumentListProps> = ({
           if (doc.physicalLocationId === 'loc-central') return false; // Already centralized
           if (!doc.metadata.transferDate) return false;
           if (new Date(doc.metadata.transferDate) >= new Date()) return false; // Not expired yet
+      }
+
+      // 0.5 Attention filter (overdue or <=3 days, require response, not completed)
+      if (!isTransferView && attentionFilter) {
+          const requires = doc.requiresResponse && !doc.isCompleted;
+          if (!requires || !doc.deadline) return false;
+          const deadline = new Date(doc.deadline).getTime();
+          const diffDays = Math.ceil((deadline - now) / oneDay);
+          const isOverdue = diffDays < 0;
+          const isUrgent = diffDays >= 0 && diffDays <= 3;
+          if (!(isOverdue || isUrgent)) return false;
       }
 
       // 1. Tab Filter (Only if not transfer view)
@@ -245,7 +261,7 @@ const DocumentList: React.FC<DocumentListProps> = ({
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4" id="document-list-anchor">
         
         {/* Standard Tabs or Transfer Header */}
         {isTransferView ? (
@@ -289,6 +305,18 @@ const DocumentList: React.FC<DocumentListProps> = ({
                     )}
                 </button>
             </div>
+        )}
+
+        {attentionFilter && !isTransferView && (
+          <div className="flex items-center gap-3 bg-red-50 border border-red-100 text-red-700 px-4 py-3 rounded-lg shadow-sm">
+            <span className="text-sm font-semibold">Modo Atención: mostrando urgentes y vencidos</span>
+            <button 
+              onClick={() => onClearAttentionFilter?.()}
+              className="text-xs font-bold bg-white text-red-700 border border-red-200 px-3 py-1 rounded hover:bg-red-100"
+            >
+              Ver todos
+            </button>
+          </div>
         )}
 
         <SearchToolbar 

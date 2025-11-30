@@ -65,6 +65,7 @@ const ContactSelector: React.FC<ContactSelectorProps> = ({
                 onKeyDown={onKeyDown}
                 onFocus={() => !disabled && setShowSuggestions(true)}
                 placeholder={placeholder}
+                maxLength={5000}
                 className="w-full p-2 pr-10 border border-slate-200 rounded bg-slate-50 text-sm focus:bg-white focus:border-blue-400 outline-none disabled:bg-slate-100 disabled:text-slate-500 font-semibold transition-all shadow-sm focus:shadow-md" 
             />
             {/* Chevron Icon */}

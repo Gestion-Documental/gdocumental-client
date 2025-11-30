@@ -26,7 +26,7 @@ export async function authMiddleware(req: AuthenticatedRequest, res: Response, n
     }
 
     const token = authHeader.replace('Bearer ', '').trim();
-    const payload = jwt.verify(token, JWT_SECRET) as { sub: string; email: string; role: UserRole };
+    const payload = jwt.verify(token, JWT_SECRET as string) as { sub: string; email: string; role: UserRole };
 
     // Optional: hydrate from DB to ensure user still exists/active
     const user = await prisma.user.findUnique({
@@ -45,4 +45,3 @@ export async function authMiddleware(req: AuthenticatedRequest, res: Response, n
     return res.status(401).json({ error: 'Unauthorized' });
   }
 }
-

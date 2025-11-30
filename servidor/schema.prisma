@@ -6,7 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mysql"
   url      = env("DATABASE_URL")
 }
 
@@ -15,6 +15,7 @@ enum UserRole {
   DIRECTOR
   ENGINEER
   GUEST
+  RESIDENT
 }
 
 enum DocumentSeries {
@@ -25,13 +26,16 @@ enum DocumentSeries {
 enum DocumentStatus {
   DRAFT
   PENDING_APPROVAL
+  PENDING_SCAN
   RADICADO
+  ARCHIVED
   VOID
 }
 
 enum DocumentType {
-  LETTER
-  MEMO
+  INBOUND
+  OUTBOUND
+  INTERNAL
 }
 
 enum WorkflowAction {
@@ -49,10 +53,34 @@ model User {
   role           UserRole
   signaturePin   String?
   signatureImage String?
+  status         String?     // e.g. 'ACTIVE', 'INACTIVE'
+  avatarUrl      String?
+  mustUpdatePassword Boolean @default(false)
+  tokenVersion   Int         @default(0)
+  entity         String?
+  cargo          String?
+  canDownload    Boolean     @default(true)
+  lastLoginAt    DateTime?
+  password       String?
 
   // Relations
   workflows      Workflow[]
   documents      Document[]  @relation("DocumentAuthors")
+  userSignatures UserSignature[]
+  projectRoles   ProjectRole[]
+  appRoles       AppRole[]
+  notifications  Notification[]
+  auditLogs      AuditLog[]
+  passwordResetTokens PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
+  signatures     Signature[]
+  reports        Report[]    @relation("ReportAuthor")
+  logEntrySignatureTasks LogEntrySignatureTask[] @relation("UserLogEntrySignatureTasks")
+  photoEntries   PhotoEntry[] @relation("PhotoEntryAuthor")
+  statusHistory  StatusHistory[] @relation("UserStatusHistory")
+  chatbotInteractions ChatbotInteraction[] @relation("UserChatbotInteraction")
+  chatbotUsages  ChatbotUsage[] @relation("UserChatbotUsage")
+  chatbotFeedbacks ChatbotFeedback[] @relation("UserChatbotFeedback")
 
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
@@ -63,9 +91,23 @@ model Project {
   code         String     @unique
   name         String
   seriesConfig Json       // JSON config for independent counters per series (ADM, TEC)
+  startDate    DateTime?
+  initialEndDate DateTime?
+  contractId   String?
+  object       String?
+  contractorName String?
+  supervisorName String?
+  initialValue Float?
 
   // Relations
   documents    Document[]
+  sequences    Sequence[]
+  contractModifications ContractModification[]
+  drawings     Drawing[]
+  controlPoints ControlPoint[]
+  projectTasks ProjectTask[]
+  projectRoles ProjectRole[]
+  keyPersonnels KeyPersonnel[]
 
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
@@ -93,6 +135,8 @@ model Document {
   type              DocumentType
   series            DocumentSeries
   status            DocumentStatus   @default(DRAFT)
+  title             String
+  content           String?
   retentionDate     DateTime?
   isPhysicalOriginal Boolean         @default(false)
   metadata          Json
@@ -108,6 +152,7 @@ model Document {
   physicalLocation   PhysicalArchive? @relation(fields: [physicalLocationId], references: [id], onDelete: SetNull)
 
   workflows         Workflow[]
+  documentSignatureLogs DocumentSignatureLog[]
 
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
@@ -145,7 +190,413 @@ model Sequence {
   project   Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  updatedAt DateTime       @default(now())
 
   @@unique([projectId, series], name: "projectId_series")
+}
+
+model LogEntry {
+  id          String   @id @default(cuid())
+  description String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  author                String?
+  attachments           Json?
+  signatureTasks        Json?
+  signedPdf             String?
+  signedPdfAttachmentId String?
+  entryDate             DateTime?
+  folioNumber           Int?
+  status                String?
+  reviewTasks           Json?
+  contractorReviewCompleted Boolean?
+  title                 String?
+  type                  String?
+  assignees             Json?
+  authorId              String?
+
+  logEntryHistories LogEntryHistory[]
+  logEntrySignatureTasks LogEntrySignatureTask[]
+  attachmentRecords Attachment[] @relation("LogEntryAttachments")
+  comments         Comment[] @relation("LogEntryComments")
+  signatures       Signature[] @relation("LogEntrySignatures")
+  reviewTaskItems  LogEntryReviewTask[] @relation("LogEntryReviewTasks")
+}
+
+model LogEntryHistory {
+  id          String   @id @default(cuid())
+  logEntryId  String
+  logEntry    LogEntry @relation(fields: [logEntryId], references: [id])
+  change      String
+  changedAt   DateTime @default(now())
+}
+
+model Attachment {
+  id          String   @id @default(cuid())
+  filename    String
+  url         String
+  uploadedAt  DateTime @default(now())
+  storagePath String?
+  size        Int?
+  costActaId  String?
+  logEntryId  String?
+  logEntry    LogEntry? @relation("LogEntryAttachments", fields: [logEntryId], references: [id])
+  attachment  Json?
+}
+
+model Acta {
+  id          String   @id @default(cuid())
+  number      Int
+  title       String
+  createdAt   DateTime @default(now())
+  date        DateTime?
+
+  costActas   CostActa[]
+  commitments Commitment[]
+}
+
+model Report {
+  id          String   @id @default(cuid())
+  title       String
+  content     String
+  createdAt   DateTime @default(now())
+  number      Int?
+  version     String?
+  type        String?
+  reportScope String?
+  comments    Json?
+  status      String?
+  submissionDate DateTime?
+  summary     String?
+  authorId    String?
+  author      User? @relation("ReportAuthor", fields: [authorId], references: [id])
+  signatures  Signature[] @relation("ReportSignatures")
+}
+
+model Communication {
+  id          String   @id @default(cuid())
+  subject     String
+  message     String
+  sentAt      DateTime @default(now())
+  status           String?
+  assigneeId       String?
+  assignee         String?
+  radicado         String?
+  responseDueDate  DateTime?
+  sentDate         DateTime?
+  attachments      Json?
+  statusHistory    Json?
+}
+
+model CostActa {
+  id                      String   @id @default(cuid())
+  actaId                  String
+  acta                    Acta     @relation(fields: [actaId], references: [id])
+  cost                    Float
+  createdAt               DateTime @default(now())
+  status                  String?
+  periodValue             Float?
+  advancePaymentPercentage Float?
+  approvalDate            DateTime?
+  paymentDueDate          DateTime?
+  // Observaciones como JSON estructurado (lista, etc.)
+  submissionDate          DateTime?
+  attachments             Json?
+  observations            Json?
+  relatedProgress         Json?
+}
+
+model UserSignature {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  signature   String
+  createdAt   DateTime @default(now())
+  fileName    String?
+  mimeType    String?
+  size        Int?
+  storagePath String?
+  updatedAt   DateTime?
+}
+
+model DocumentSignatureLog {
+  id          String   @id @default(cuid())
+  documentId  String
+  document    Document @relation(fields: [documentId], references: [id])
+  signedBy    String
+  signedAt    DateTime @default(now())
+}
+
+model LogEntrySignatureTask {
+  id          String   @id @default(cuid())
+  logEntryId  String
+  logEntry    LogEntry @relation(fields: [logEntryId], references: [id])
+  assignedTo  String
+  status      String
+  createdAt   DateTime @default(now())
+  signerId    String?
+  signer      User?    @relation("UserLogEntrySignatureTasks", fields: [signerId], references: [id])
+  assignedAt  DateTime?
+}
+
+model ProjectRole {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  role        String
+}
+
+model AppRole {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  role        String
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  message     String
+  read        Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  type        String?
+  recipientId String?
+  commentId   String?
+  relatedItemType String?
+  relatedItemId String?
+  relatedView String?
+}
+
+model ContractModification {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  description String
+  value       Float
+  createdAt   DateTime @default(now())
+}
+
+model Drawing {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  filename    String
+  uploadedAt  DateTime @default(now())
+  discipline  String?
+  versions    Json?
+  comments    Json?
+  status      String?
+  code        String?
+}
+
+model ControlPoint {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id])
+  name       String
+  location   String
+
+  photos     PhotoEntry[]
+}
+
+model PhotoEntry {
+  id            String   @id @default(cuid())
+  controlPointId String
+  controlPoint   ControlPoint @relation(fields: [controlPointId], references: [id])
+  url           String
+  takenAt       DateTime @default(now())
+  notes         Json?
+  order         Int?
+  date          DateTime?
+  attachment    String?
+  authorId      String?
+  author        User?    @relation("PhotoEntryAuthor", fields: [authorId], references: [id])
+}
+
+model ProjectTask {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  title       String
+  description String
+  dueDate     DateTime
+  status      String
+  startDate   DateTime?
+  endDate     DateTime?
+  dependencies Json?
+  outlineLevel Int?
+}
+
+model Commitment {
+  id          String   @id @default(cuid())
+  description String
+  dueDate     DateTime
+  actaNumber  Int
+  actaTitle   String
+  status      String?
+  actaId      String?
+  acta        Acta?    @relation(fields: [actaId], references: [id])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  action      String
+  details     String
+  createdAt   DateTime @default(now())
+  timestamp   DateTime? @default(now())
+  actor       String?
+  actorEmail  String?
+  entityType  String?
+  entityId    String?
+  diff        Json?
+}
+
+model AppSetting {
+  id                      String   @id @default(cuid())
+  key                     String   @unique
+  value                   String
+  companyName             String?
+  timezone                String?
+  locale                  String?
+  requireStrongPassword   Boolean  @default(false)
+  enable2FA               Boolean  @default(false)
+  sessionTimeoutMinutes   Int?
+  photoIntervalDays       Int?
+  defaultProjectVisibility String?
+}
+
+model PasswordResetToken {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  token       String
+  expiresAt   DateTime
+  tokenHash   String?
+  usedAt      DateTime?
+}
+
+model EmailVerificationToken {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  token       String
+  expiresAt   DateTime
+  tokenHash   String?
+  usedAt      DateTime?
+}
+
+model ContractItem {
+  id          String   @id @default(cuid())
+  description String
+  value       Float
+  createdAt   DateTime @default(now())
+  itemCode    String?
+  unit        String?
+  unitPrice   Float?
+  executedQuantity Float?
+  executions  ContractItemExecution[] @relation("ContractItemExecutions")
+}
+
+model WorkActa {
+  id          String   @id @default(cuid())
+  title       String
+  date        DateTime
+  comments    Json?
+  signatures  Json?
+  createdAt   DateTime @default(now())
+}
+
+model Comment {
+  id          String   @id @default(cuid())
+  author      String
+  text        String
+  createdAt   DateTime @default(now())
+  logEntryId  String?
+  logEntry    LogEntry? @relation("LogEntryComments", fields: [logEntryId], references: [id])
+}
+
+model Signature {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  signedAt    DateTime @default(now())
+  logEntryId  String?
+  logEntry    LogEntry? @relation("LogEntrySignatures", fields: [logEntryId], references: [id])
+  reportId    String?
+  report      Report?  @relation("ReportSignatures", fields: [reportId], references: [id])
+}
+
+model Observation {
+  id          String   @id @default(cuid())
+  description String
+  createdAt   DateTime @default(now())
+  text        String?
+  timestamp   DateTime?
+}
+
+model StatusHistory {
+  id          String   @id @default(cuid())
+  entityType  String
+  entityId    String
+  status      String
+  changedAt   DateTime @default(now())
+  timestamp   DateTime?
+  userId      String?
+  user        User?    @relation("UserStatusHistory", fields: [userId], references: [id])
+}
+
+model KeyPersonnel {
+  id          String   @id @default(cuid())
+  name        String
+  role        String
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+}
+
+model LogEntryReviewTask {
+  id          String   @id @default(cuid())
+  logEntryId  String
+  logEntry    LogEntry @relation("LogEntryReviewTasks", fields: [logEntryId], references: [id])
+  assignedTo  String
+  status      String
+  createdAt   DateTime @default(now())
+}
+
+model ContractItemExecution {
+  id                String   @id @default(cuid())
+  contractItemId    String
+  contractItem      ContractItem @relation("ContractItemExecutions", fields: [contractItemId], references: [id])
+  executedQuantity  Float
+  executedAt        DateTime @default(now())
+}
+
+model ChatbotInteraction {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation("UserChatbotInteraction", fields: [userId], references: [id])
+  inputText   String
+  responseText String
+  createdAt   DateTime @default(now())
+}
+
+model ChatbotUsage {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation("UserChatbotUsage", fields: [userId], references: [id])
+  usageCount  Int      @default(0)
+  lastUsed    DateTime?
+}
+
+model ChatbotFeedback {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation("UserChatbotFeedback", fields: [userId], references: [id])
+  feedbackText String
+  rating      Int
+  createdAt   DateTime @default(now())
 }

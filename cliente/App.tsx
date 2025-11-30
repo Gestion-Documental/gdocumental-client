@@ -5,8 +5,9 @@ import {
   SignatureMethod, ViewState, User
 } from './types';
 import { 
-  MOCK_PROJECTS, MOCK_DOCUMENTS, simulateRadication, getDocumentThread 
+  getDocumentThread 
 } from './services/mockData';
+import { login as apiLogin, fetchDocuments, createInboundDocument, radicarDocument, fetchProjects } from './services/api';
 
 import LoginPage from './components/LoginPage';
 import AdminDashboard from './components/AdminDashboard';
@@ -29,10 +30,11 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   // --- APP STATE ---
-  const [projects] = useState<Project[]>(MOCK_PROJECTS);
-  const [activeProjectId, setActiveProjectId] = useState<string>(projects[0].id);
-  const [documents, setDocuments] = useState<Document[]>(MOCK_DOCUMENTS);
-  const [currentView, setCurrentView] = useState<ViewState>('DASHBOARD');
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<string>('');
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [currentView, setCurrentView] = useState<ViewState>('LOGIN');
+  const [token, setToken] = useState<string | null>(null);
 
   // Editor State
   const [isEditorOpen, setIsEditorOpen] = useState(false);
@@ -50,6 +52,7 @@ const App: React.FC = () => {
   const [finalizeDoc, setFinalizeDoc] = useState<Document | null>(null);
   const [signedDocView, setSignedDocView] = useState<Document | null>(null);
   const [dossierDoc, setDossierDoc] = useState<Document | null>(null);
+  const [showAttentionList, setShowAttentionList] = useState(false);
 
   const activeProject = projects.find(p => p.id === activeProjectId) || projects[0];
 
@@ -57,18 +60,38 @@ const App: React.FC = () => {
     documents.filter(d => d.projectId === activeProjectId),
   [documents, activeProjectId]);
 
+  // Fetch projects on login
+  React.useEffect(() => {
+    if (!token) return;
+    fetchProjects(token)
+      .then((p) => {
+        setProjects(p);
+        if (p.length > 0) {
+          setActiveProjectId(p[0].id);
+        }
+      })
+      .catch(() => {});
+  }, [token]);
+
+  // Fetch documents when login/project changes
+  React.useEffect(() => {
+    if (!token || !activeProjectId) return;
+    fetchDocuments(token, activeProjectId)
+      .then(setDocuments)
+      .catch(() => {});
+  }, [token, activeProjectId]);
+
   // --- AUTH HANDLERS ---
-  const handleLogin = (user: User) => {
+  const handleLogin = (user: User, authToken: string) => {
       setCurrentUser(user);
-      if (user.role === 'SUPER_ADMIN') {
-          setCurrentView('ADMIN_DASHBOARD');
-      } else {
-          setCurrentView('DASHBOARD');
-      }
+      setToken(authToken);
+      setCurrentView(user.role === 'SUPER_ADMIN' ? 'ADMIN_DASHBOARD' : 'DASHBOARD');
   };
 
   const handleLogout = () => {
       setCurrentUser(null);
+      setToken(null);
+      setDocuments([]);
       setCurrentView('LOGIN');
   };
 
@@ -86,6 +109,7 @@ const App: React.FC = () => {
          });
          setDocuments(updatedDocs);
      } else {
+         // Borrador local (pendiente de API para salidas/internos)
          const newDoc: Document = {
              id: `new-${Date.now()}`,
              projectId: activeProjectId,
@@ -114,48 +138,39 @@ const App: React.FC = () => {
      setReplyToDoc(null);
   };
 
-  const handleSignatureConfirm = (method: SignatureMethod, signatureImage?: string) => {
-      if (!finalizeDoc) return;
-      
-      const radicatedDoc = simulateRadication(finalizeDoc, activeProject, method);
-      if (signatureImage) {
-          radicatedDoc.signatureImage = signatureImage;
+  const handleSignatureConfirm = async (method: SignatureMethod, _signatureImage?: string) => {
+      if (!finalizeDoc || !token) return;
+      try {
+        const updated = await radicarDocument(token, finalizeDoc.id, method);
+        setDocuments(docs => docs.map(d => d.id === updated.id ? updated : d));
+        setSignedDocView(updated);
+      } catch (err: any) {
+        alert(err.message || 'No se pudo radicar');
+      } finally {
+        setFinalizeDoc(null);
       }
-      
-      const updatedDocs = documents.map(d => d.id === finalizeDoc.id ? radicatedDoc : d);
-      setDocuments(updatedDocs);
-      setFinalizeDoc(null);
-      setSignedDocView(radicatedDoc);
   };
 
-  const handleSaveInbound = (data: any) => {
-      const newDoc: Document = {
-          id: `in-${Date.now()}`,
+  const handleSaveInbound = async (data: any) => {
+      if (!token) return alert('Necesitas iniciar sesión');
+      try {
+        const defaultDeadline = new Date(Date.now() + 15 * 86400000).toISOString();
+        const payload = {
           projectId: activeProjectId,
-          type: DocumentType.INBOUND,
           series: data.series,
           title: data.title,
-          status: DocumentStatus.RADICADO, 
           metadata: data.metadata,
-          content: data.content,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
           requiresResponse: true,
-          deadline: new Date(Date.now() + 15 * 86400000).toISOString(),
-          
+          deadline: data.metadata?.deadline || data.metadata?.documentDate || defaultDeadline,
           receptionMedium: data.receptionMedium,
-          isPhysicalOriginal: data.receptionMedium === 'PHYSICAL',
-          author: currentUser?.fullName || 'Recepción',
-          dispatchMethod: null,
-          dispatchDate: null,
-          emailTrackingStatus: null
-      };
-
-      const radicatedDoc = simulateRadication(newDoc, activeProject, SignatureMethod.PHYSICAL);
-
-      setDocuments([radicatedDoc, ...documents]);
-      setIsInboundRegistering(false);
-      setDossierDoc(radicatedDoc);
+        };
+        const created = await createInboundDocument(token, payload);
+        setDocuments([created, ...documents]);
+        setIsInboundRegistering(false);
+        setDossierDoc(created);
+      } catch (error: any) {
+        alert(error.message || 'No se pudo registrar la entrada');
+      }
   };
   
   const handleRegisterDelivery = (docId: string, data: { receivedBy: string; receivedAt: string; proof: string }) => {
@@ -323,7 +338,7 @@ const App: React.FC = () => {
     
     return (
         <div className="flex gap-6 h-[calc(100vh-140px)]">
-             <div className="w-64 flex-shrink-0 overflow-y-auto hidden lg:block pr-2">
+             <div className="w-64 flex-shrink-0 overflow-y-auto pr-2">
                  <ProjectSelector 
                     projects={projects}
                     activeProjectId={activeProjectId}
@@ -339,14 +354,16 @@ const App: React.FC = () => {
                                 setReplyToDoc(null);
                                 setIsEditorOpen(true);
                             }}
-                            className="flex items-center gap-2 w-full p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-md transition-all font-medium text-sm"
+                            disabled={!activeProject}
+                            className={`flex items-center gap-2 w-full p-3 rounded-lg shadow-md transition-all font-medium text-sm ${activeProject ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-slate-200 text-slate-500 cursor-not-allowed'}`}
                          >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
                             Nuevo Documento
                          </button>
                          <button 
                             onClick={() => setIsInboundRegistering(true)}
-                            className="flex items-center gap-2 w-full p-3 bg-orange-500 hover:bg-orange-600 text-white rounded-lg shadow-md transition-all font-medium text-sm"
+                            disabled={!activeProject}
+                            className={`flex items-center gap-2 w-full p-3 rounded-lg shadow-md transition-all font-medium text-sm ${activeProject ? 'bg-orange-500 hover:bg-orange-600 text-white' : 'bg-slate-200 text-slate-500 cursor-not-allowed'}`}
                          >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                             Radicar Entrada
@@ -362,11 +379,24 @@ const App: React.FC = () => {
                     onShowTransfers={() => setShowTransferReady(true)}
                  />
                  
-                 <AlertBanner documents={projectDocuments} />
+                 <AlertBanner 
+                    documents={projectDocuments} 
+                    onReviewAll={() => {
+                        setShowTransferReady(false);
+                        setCurrentView('DASHBOARD');
+                        setShowAttentionList(true);
+                        setTimeout(() => {
+                          const anchor = document.getElementById('document-list-anchor');
+                          anchor?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }, 0);
+                    }}
+                 />
 
                  <DocumentList 
                     documents={projectDocuments}
                     userRole={currentUser.role === 'SUPER_ADMIN' ? 'DIRECTOR' : currentUser.role as any}
+                    attentionFilter={showAttentionList}
+                    onClearAttentionFilter={() => setShowAttentionList(false)}
                     isTransferView={showTransferReady}
                     onCloseTransferView={() => setShowTransferReady(false)}
                     onTransferBatch={handleTransferBatch}

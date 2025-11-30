@@ -4,6 +4,9 @@ import { Project, SeriesType, ReceptionMedium } from '../types';
 import ContactSelector from './ContactSelector';
 import { analyzeDocumentWithAI } from '../services/googleVisionService';
 
+const LONG_TEXT_LIMIT = 5000;
+const MEDIUM_TEXT_LIMIT = 1000;
+
 interface InboundRegistrationProps {
   activeProject: Project;
   onCancel: () => void;
@@ -262,6 +265,7 @@ const InboundRegistration: React.FC<InboundRegistrationProps> = ({ activeProject
                         value={externalReference}
                         onChange={(e) => setExternalReference(e.target.value)}
                         placeholder="Ej: OFICIO-2023-505"
+                        maxLength={MEDIUM_TEXT_LIMIT}
                         className="w-full p-2.5 border border-slate-200 rounded-lg bg-slate-50 text-sm focus:bg-white focus:border-blue-400 outline-none transition-all"
                     />
                     <p className="text-[10px] text-slate-400 mt-1">El número con el que viene marcado el documento.</p>
@@ -284,6 +288,7 @@ const InboundRegistration: React.FC<InboundRegistrationProps> = ({ activeProject
                         value={subject}
                         onChange={(e) => setSubject(e.target.value)}
                         placeholder="Breve descripción del contenido..."
+                        maxLength={LONG_TEXT_LIMIT}
                         className="w-full p-3 border border-slate-200 rounded-lg bg-slate-50 text-sm focus:bg-white focus:border-blue-400 outline-none transition-all resize-none"
                     />
                 </div>

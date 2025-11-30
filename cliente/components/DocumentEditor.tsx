@@ -42,10 +42,13 @@ if (typeof window !== 'undefined') {
 
 // Moved outside to avoid type errors and recreation on render
 const PaperContainer = ({ children, className = "" }: { children?: React.ReactNode, className?: string }) => (
-  <div className={`bg-white w-full max-w-[210mm] min-h-[297mm] mx-auto shadow-2xl text-slate-900 relative transition-all duration-500 ${className}`}>
+  <div className={`bg-white w-full max-w-[210mm] min-h-[297mm] mx-auto shadow-[0_15px_45px_rgba(0,0,0,0.15)] text-slate-900 relative transition-all duration-500 rounded-sm outline outline-[0.5px] outline-slate-200 ${className}`}>
       {children}
   </div>
 );
+
+const LONG_TEXT_LIMIT = 5000;
+const MEDIUM_TEXT_LIMIT = 1000;
 
 // Moved outside, accepts onExecCmd callback
 const FallbackToolbar = ({ onExecCmd }: { onExecCmd: (cmd: string, value?: string) => void }) => (
@@ -94,6 +97,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [editorReady, setEditorReady] = useState(false);
   const [useFallback, setUseFallback] = useState(false);
+  const [previewHtml, setPreviewHtml] = useState<string>('');
 
   const editorId = 'nexus-tinymce-editor';
   const fallbackRef = useRef<HTMLDivElement>(null);
@@ -277,9 +281,9 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
 
         window.tinymce.init({
             selector: `#${editorId}`,
-            height: 800,
-            menubar: false,
-            statusbar: false,
+            height: 860,
+            menubar: 'file edit view insert format tools table help',
+            statusbar: true,
             skin: 'oxide',
             icons: 'default',
             resize: false,
@@ -291,20 +295,27 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
             'anchor', 'searchreplace', 'visualblocks', 'code', 'fullscreen',
             'insertdatetime', 'media', 'table', 'code', 'help', 'wordcount'
             ],
-            toolbar: isReadOnly ? false : 'undo redo | blocks fontfamily fontsize | ' +
-            'bold italic underline forecolor | alignleft aligncenter ' +
-            'alignright alignjustify | bullist numlist outdent indent | ' +
-            'removeformat | table | help',
+            toolbar: isReadOnly ? false : 'undo redo | blocks fontfamily fontsize | bold italic underline forecolor backcolor | ' +
+            'alignleft aligncenter alignright alignjustify | lineheight | bullist numlist outdent indent | ' +
+            'table | removeformat | preview',
+            font_family_formats: "Calibri=Calibri,Segoe UI,sans-serif;Times New Roman=Times New Roman,serif;Arial=Arial,Helvetica,sans-serif;Courier New=Courier New,monospace",
+            font_size_formats: "10pt 11pt 12pt 14pt 16pt",
+            line_height_formats: "1 1.15 1.5 2",
             content_style: `
-            body { 
-                font-family: 'Times New Roman', Times, serif; 
-                font-size: 12pt; 
-                color: #1e293b; 
-                line-height: 1.6; 
-                margin: 2rem; 
-                background-color: ${isReadOnly ? '#f8fafc' : '#fff'};
+            body {
+                font-family: 'Calibri', 'Segoe UI', sans-serif;
+                font-size: 11pt;
+                color: #1f2937;
+                line-height: 1.5;
+                max-width: 170mm;
+                margin: 0 auto;
+                padding: 25mm 25mm 30mm 25mm;
+                background: #fff;
             }
-            p { margin-bottom: 1rem; }
+            p { margin: 0 0 12pt 0; }
+            h1,h2,h3,h4 { font-family: 'Calibri', 'Segoe UI', sans-serif; margin: 12pt 0 6pt 0; }
+            table { border-collapse: collapse; width: 100%; }
+            td, th { padding: 4px; }
             `,
             setup: (editor: any) => {
                 editor.on('Init', () => {
@@ -423,6 +434,21 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
     if (fallbackRef.current) fallbackRef.current.focus();
   };
 
+  const openPreview = () => {
+    let html = content;
+    if (!useFallback && window.tinymce && window.tinymce.get(editorId)) {
+      html = window.tinymce.get(editorId).getContent();
+    } else if (useFallback && fallbackRef.current) {
+      html = fallbackRef.current.innerHTML;
+    }
+    setPreviewHtml(html);
+    setIsPreviewMode(true);
+  };
+
+  const closePreview = () => {
+    setIsPreviewMode(false);
+  };
+
   return (
     <div className="flex flex-row h-full gap-0 bg-slate-100 rounded-xl overflow-hidden border border-slate-200 shadow-inner animate-fade-in relative">
       
@@ -489,6 +515,14 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
                                 </button>
                             </>
                         )}
+
+                        <button
+                          type="button"
+                          onClick={openPreview}
+                          className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-200 shadow-sm"
+                        >
+                          Vista previa
+                        </button>
                     </>
                 )}
             </div>
@@ -574,17 +608,17 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
                             <div className="col-span-1 md:col-span-2 flex gap-4">
                                 <div className="flex-1">
                                     <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Atención A (Nombre)</label>
-                                    <input disabled={isReadOnly} type="text" value={recipientName} onChange={(e) => setRecipientName(e.target.value)} placeholder="Nombre Completo" className="w-full p-2 border border-slate-200 rounded bg-slate-50 text-sm focus:bg-white focus:border-blue-400 outline-none disabled:bg-slate-100 disabled:text-slate-500 transition-all" />
+                                    <input disabled={isReadOnly} type="text" value={recipientName} onChange={(e) => setRecipientName(e.target.value)} placeholder="Nombre Completo" maxLength={MEDIUM_TEXT_LIMIT} className="w-full p-2 border border-slate-200 rounded bg-slate-50 text-sm focus:bg-white focus:border-blue-400 outline-none disabled:bg-slate-100 disabled:text-slate-500 transition-all" />
                                 </div>
                                 <div className="flex-1">
                                     <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Cargo</label>
-                                    <input disabled={isReadOnly} type="text" value={recipientRole} onChange={(e) => setRecipientRole(e.target.value)} placeholder="Cargo" className="w-full p-2 border border-slate-200 rounded bg-slate-50 text-sm focus:bg-white focus:border-blue-400 outline-none disabled:bg-slate-100 disabled:text-slate-500 transition-all" />
+                                    <input disabled={isReadOnly} type="text" value={recipientRole} onChange={(e) => setRecipientRole(e.target.value)} placeholder="Cargo" maxLength={MEDIUM_TEXT_LIMIT} className="w-full p-2 border border-slate-200 rounded bg-slate-50 text-sm focus:bg-white focus:border-blue-400 outline-none disabled:bg-slate-100 disabled:text-slate-500 transition-all" />
                                 </div>
                             </div>
                             
                             <div className="col-span-1 md:col-span-2">
                                 <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Dirección Física</label>
-                                <input disabled={isReadOnly} type="text" value={recipientAddress} onChange={(e) => setRecipientAddress(e.target.value)} placeholder="Dirección Física" className="w-full p-2 border border-slate-200 rounded bg-slate-50 text-sm focus:bg-white focus:border-blue-400 outline-none disabled:bg-slate-100 disabled:text-slate-500 transition-all" />
+                                <input disabled={isReadOnly} type="text" value={recipientAddress} onChange={(e) => setRecipientAddress(e.target.value)} placeholder="Dirección Física" maxLength={LONG_TEXT_LIMIT} className="w-full p-2 border border-slate-200 rounded bg-slate-50 text-sm focus:bg-white focus:border-blue-400 outline-none disabled:bg-slate-100 disabled:text-slate-500 transition-all" />
                             </div>
 
                             {/* CARBON COPY (CC) SECTION */}
@@ -641,18 +675,19 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
                                     type="text" 
                                     value={title}
                                     onChange={(e) => setTitle(e.target.value)}
+                                    maxLength={LONG_TEXT_LIMIT}
                                     className="w-full text-lg font-bold text-slate-800 placeholder:text-slate-300 outline-none bg-transparent disabled:text-slate-600"
                                     placeholder="Escriba la Referencia del Asunto..." 
                                 />
                             </div>
-                        </div>
+                            </div>
 
                         <div className="relative min-h-[600px]">
                             {useFallback ? (
                                 <div 
                                     ref={fallbackRef}
                                     contentEditable={!isReadOnly}
-                                    className="w-full h-full min-h-[600px] outline-none px-[20mm] py-4 font-serif text-lg leading-relaxed text-slate-800"
+                                    className="w-full h-full min-h-[600px] outline-none px-[20mm] py-[20mm] font-sans text-[11pt] leading-[1.5] text-slate-800 bg-white"
                                     onInput={(e) => handleManualEdit(e.currentTarget.innerHTML)}
                                     dangerouslySetInnerHTML={{ __html: content }}
                                 />
@@ -682,6 +717,27 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
         currentUserRole={userRole}
         onAddComment={handleAddComment}
       />
+
+      {isPreviewMode && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-start justify-center overflow-auto py-10 px-6">
+          <div className="bg-white w-full max-w-5xl rounded-2xl shadow-2xl border border-slate-200 relative animate-fade-in">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h3 className="text-lg font-semibold text-slate-800">Preview</h3>
+              <button
+                onClick={closePreview}
+                className="text-slate-400 hover:text-slate-800 rounded-full p-2 hover:bg-slate-100"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-8 bg-slate-50">
+              <div className="bg-white shadow-[0_15px_45px_rgba(0,0,0,0.08)] border border-slate-100 max-w-[210mm] mx-auto min-h-[297mm] p-[20mm] text-slate-900 prose prose-slate">
+                <div dangerouslySetInnerHTML={{ __html: previewHtml || '<p><em>No hay contenido para mostrar.</em></p>' }} />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

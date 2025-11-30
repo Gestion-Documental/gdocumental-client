@@ -215,7 +215,7 @@ const SignatureModal: React.FC<SignatureModalProps> = ({ document, user, onClose
                                     type="password" 
                                     value={pin}
                                     onChange={(e) => setPin(e.target.value)}
-                                    maxLength={4}
+                                    maxLength={12}
                                     className={`w-full text-center tracking-[0.5em] text-lg font-bold p-2 border rounded outline-none focus:ring-2 ${isPinValid ? 'border-green-500 focus:ring-green-200 bg-green-50 text-green-700' : 'border-slate-300 focus:ring-blue-200'}`}
                                     placeholder="••••"
                                     />

@@ -89,7 +89,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onBack }) => {
                             <label className="block text-xs font-bold text-slate-700 mb-2">Nuevo PIN</label>
                             <input 
                                 type="password" 
-                                maxLength={4}
+                                maxLength={12}
                                 value={pin}
                                 onChange={(e) => setPin(e.target.value)}
                                 className="w-full border border-slate-300 rounded-lg p-3 text-center font-mono text-xl tracking-[0.5em] focus:ring-2 focus:ring-blue-500 outline-none"

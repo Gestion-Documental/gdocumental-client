@@ -4,9 +4,10 @@ import { Document } from '../types';
 
 interface AlertBannerProps {
   documents: Document[];
+  onReviewAll?: () => void;
 }
 
-const AlertBanner: React.FC<AlertBannerProps> = ({ documents }) => {
+const AlertBanner: React.FC<AlertBannerProps> = ({ documents, onReviewAll }) => {
   // Analyze Documents
   const now = new Date();
   
@@ -60,7 +61,9 @@ const AlertBanner: React.FC<AlertBannerProps> = ({ documents }) => {
         </div>
       </div>
       
-      <button className={`px-4 py-2 rounded text-xs font-semibold hover:opacity-80 transition-opacity
+      <button 
+        onClick={onReviewAll}
+        className={`px-4 py-2 rounded text-xs font-semibold hover:opacity-80 transition-opacity
          ${isCritical ? 'bg-red-600 text-white' : 'bg-orange-500 text-white'}
       `}>
          Review All
