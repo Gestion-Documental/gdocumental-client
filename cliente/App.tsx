@@ -104,7 +104,19 @@ const App: React.FC = () => {
      }
 
      try {
-       // Crear borrador (nuevo)
+       const attachmentsToUpload = (data.metadata?.attachments || []).filter((att: any) => att.file);
+       const metadataClean = {
+         ...(data.metadata || {}),
+         attachments: (data.metadata?.attachments || []).map((att: any) => ({
+           id: att.id,
+           name: att.name,
+           type: att.type,
+           size: att.size,
+           url: att.url,
+         }))
+       };
+
+       // Crear o actualizar borrador
        let docId = editorDoc?.id;
        if (!docId) {
          const created = await createDocument(token, {
@@ -113,32 +125,50 @@ const App: React.FC = () => {
            series: data.series,
            title: data.title,
            content: data.content,
-           metadata: data.metadata,
+           metadata: metadataClean,
            retentionDate: data.retentionDate,
            isPhysicalOriginal: data.isPhysicalOriginal,
            physicalLocationId: data.physicalLocationId,
          });
          docId = created.id;
+       } else {
+         await updateDocument(token, docId, {
+           title: data.title,
+           content: data.content,
+           metadata: {
+              ...(editorDoc?.metadata || {}),
+             ...(metadataClean || {}),
+           },
+         });
+       }
+
+       // Subir adjuntos nuevos (solo los que tengan file)
+       if (attachmentsToUpload.length && docId) {
+         for (const att of attachmentsToUpload) {
+           await uploadAttachment(token, docId, att.file);
+         }
+       }
+
+       // Cambiar estado si aplica
+       if (data.forceStatus && docId) {
+         await updateStatus(token, docId, data.forceStatus);
        }
 
        // Si hay que finalizar, radicar
+       let updatedDoc: Document | null = null;
        if (data.shouldFinalize && docId) {
-         const updated = await radicarDocument(token, docId, SignatureMethod.DIGITAL);
+         updatedDoc = await radicarDocument(token, docId, SignatureMethod.DIGITAL);
+         setSignedDocView(updatedDoc);
+       } else if (docId) {
+         updatedDoc = await fetchDocument(token, docId);
+       }
+
+       if (updatedDoc) {
          setDocuments(docs => {
-           const existing = docs.some(d => d.id === updated.id);
-           return existing ? docs.map(d => d.id === updated.id ? updated : d) : [updated, ...docs];
+           const exists = docs.some(d => d.id === updatedDoc!.id);
+           return exists ? docs.map(d => d.id === updatedDoc!.id ? updatedDoc! : d) : [updatedDoc!, ...docs];
          });
-         setSignedDocView(updated);
        } else {
-         // Subir adjuntos si hay
-         if (data.metadata?.attachments?.length && docId) {
-           for (const att of data.metadata.attachments) {
-             if (att.file) {
-               await uploadAttachment(token, docId, att.file);
-             }
-           }
-         }
-         // refresca lista después de crear/actualizar
          fetchDocuments(token, activeProjectId).then(setDocuments).catch(() => {});
        }
      } catch (err: any) {
@@ -294,6 +324,18 @@ const App: React.FC = () => {
     }
   };
 
+  const handleChangeStatus = async (docId: string, status: DocumentStatus) => {
+    if (!token) return;
+    try {
+      await updateStatus(token, docId, status);
+      const refreshed = await fetchDocument(token, docId);
+      setDocuments(docs => docs.map(d => d.id === refreshed.id ? refreshed : d));
+      if (dossierDoc && dossierDoc.id === docId) setDossierDoc(refreshed);
+    } catch (err: any) {
+      alert(err.message || 'No se pudo actualizar el estado');
+    }
+  };
+
   // --- RENDER LOGIC ---
 
   if (!currentUser) {
@@ -339,6 +381,7 @@ const App: React.FC = () => {
             currentUserName={currentUser.fullName}
             onDeleteAttachment={(attId) => handleDeleteAttachment(dossierDoc.id, attId)}
             apiBaseUrl={API_URL}
+            onChangeStatus={(status) => handleChangeStatus(dossierDoc.id, status)}
         />;
     }
 
@@ -355,6 +398,8 @@ const App: React.FC = () => {
                     setReplyToDoc(null);
                 }}
                 onSave={handleSaveDocument}
+                onDeleteAttachment={(attId) => editorDoc?.id && handleDeleteAttachment(editorDoc.id, attId)}
+                apiBaseUrl={API_URL}
             />
         );
     }
@@ -430,8 +475,14 @@ const App: React.FC = () => {
                         setEditorDoc(null);
                         setIsEditorOpen(true);
                     }}
-                    onEdit={(doc) => {
-                        setEditorDoc(doc);
+                    onEdit={async (doc) => {
+                        if (!token) return;
+                        try {
+                          const fullDoc = await fetchDocument(token, doc.id);
+                          setEditorDoc(fullDoc);
+                        } catch {
+                          setEditorDoc(doc);
+                        }
                         setReplyToDoc(null);
                         setIsEditorOpen(true);
                     }}

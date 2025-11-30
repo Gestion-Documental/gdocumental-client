@@ -19,9 +19,10 @@ interface DossierViewProps {
   onDispatchUpdate?: (payload: { method: 'NEXUS_MAIL' | 'EXTERNAL_CLIENT'; dispatchDate: string; emailTrackingStatus: 'SENT' | 'OPENED' | 'CLICKED'; dispatchUser?: string; trackingId?: string }) => void;
   onDeleteAttachment?: (attachmentId: string) => void;
   apiBaseUrl?: string;
+  onChangeStatus?: (status: DocumentStatus) => void;
 }
 
-const DossierView: React.FC<DossierViewProps> = ({ document, userRole, currentUserName, onClose, onRegisterDelivery, onAssignLocation, onVoidDocument, onDispatchUpdate, onDeleteAttachment, apiBaseUrl }) => {
+const DossierView: React.FC<DossierViewProps> = ({ document, userRole, currentUserName, onClose, onRegisterDelivery, onAssignLocation, onVoidDocument, onDispatchUpdate, onDeleteAttachment, apiBaseUrl, onChangeStatus }) => {
   const [isZipping, setIsZipping] = useState(false);
   const [showLabelGenerator, setShowLabelGenerator] = useState(false);
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
@@ -73,6 +74,8 @@ const DossierView: React.FC<DossierViewProps> = ({ document, userRole, currentUs
   const isVoid = document.status === DocumentStatus.VOID;
   const canRegisterDelivery = !isVoid && isOutbound && document.status === 'RADICADO' && document.deliveryStatus !== 'DELIVERED';
   const isDelivered = document.deliveryStatus === 'DELIVERED';
+  const canMarkPendingApproval = document.status === DocumentStatus.DRAFT && !isVoid;
+  const canMarkArchived = document.status === DocumentStatus.RADICADO && !isVoid;
   
   // Digital Asset Logic
   const isDigitalOriginal = document.receptionMedium?.includes('DIGITAL');
@@ -123,6 +126,28 @@ const DossierView: React.FC<DossierViewProps> = ({ document, userRole, currentUs
                    🚫 Anular
                </button>
            )}
+
+           {/* Estado rápido */}
+           {!isVoid && onChangeStatus && (
+             <div className="flex gap-2">
+               {canMarkPendingApproval && (
+                 <button
+                   onClick={() => onChangeStatus(DocumentStatus.PENDING_APPROVAL)}
+                   className="text-xs bg-yellow-50 text-yellow-700 border border-yellow-200 px-3 py-1 rounded hover:bg-yellow-100"
+                 >
+                   Pendiente Aprobación
+                 </button>
+               )}
+               {canMarkArchived && (
+                 <button
+                   onClick={() => onChangeStatus(DocumentStatus.ARCHIVED)}
+                   className="text-xs bg-slate-100 text-slate-700 border border-slate-200 px-3 py-1 rounded hover:bg-slate-200"
+                 >
+                   Archivar
+                 </button>
+               )}
+             </div>
+           )}
         </div>
       </div>
 
@@ -149,8 +174,8 @@ const DossierView: React.FC<DossierViewProps> = ({ document, userRole, currentUs
 
                 <div className="mb-8 border-b-2 border-slate-900 pb-4 flex justify-between items-end">
                     <div>
-                        <h1 className="text-2xl font-serif font-bold text-slate-900 uppercase tracking-widest">Nexus<span className="text-blue-900">DMS</span></h1>
-                        <p className="text-xs text-slate-500">Enterprise Document Management</p>
+                        <h1 className="text-2xl font-serif font-bold text-slate-900 uppercase tracking-widest">Radika</h1>
+                        <p className="text-xs text-slate-500">Gestión Documental Inteligente</p>
                     </div>
                     <div className="text-right">
                         <p className="text-xs font-bold text-slate-400 uppercase">Radicado Oficial</p>
@@ -172,7 +197,7 @@ const DossierView: React.FC<DossierViewProps> = ({ document, userRole, currentUs
                                 return (
                                   <li key={att.id} className="flex items-center gap-2">
                                       <a href={downloadUrl} className="text-blue-600 hover:underline" target="_blank" rel="noreferrer">
-                                        {att.name || att.filename || 'Adjunto'}
+                                        {att.name || (att as any).filename || 'Adjunto'}
                                       </a>
                                       {att.size && <span className="opacity-50">({att.size})</span>}
                                       {onDeleteAttachment && (

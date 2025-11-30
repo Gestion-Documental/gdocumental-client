@@ -6,9 +6,11 @@ interface FileAttachmentsProps {
   attachments: Attachment[];
   onChange: (attachments: Attachment[]) => void;
   readOnly?: boolean;
+  onDeleteAttachment?: (id: string) => void;
+  apiBaseUrl?: string;
 }
 
-const FileAttachments: React.FC<FileAttachmentsProps> = ({ attachments, onChange, readOnly }) => {
+const FileAttachments: React.FC<FileAttachmentsProps> = ({ attachments, onChange, readOnly, onDeleteAttachment, apiBaseUrl = '' }) => {
 
   const handleFileSelect = (files: FileList | null) => {
     if (readOnly || !files) return;
@@ -24,6 +26,10 @@ const FileAttachments: React.FC<FileAttachmentsProps> = ({ attachments, onChange
 
   const handleRemove = (id: string) => {
       if (readOnly) return;
+      if (onDeleteAttachment) {
+        onDeleteAttachment(id);
+        return;
+      }
       onChange(attachments.filter(f => f.id !== id));
   };
 
@@ -72,8 +78,16 @@ const FileAttachments: React.FC<FileAttachmentsProps> = ({ attachments, onChange
                     <div key={file.id} className="bg-white border border-slate-200 rounded-lg p-3 flex items-center gap-3 shadow-sm group">
                         {getIcon(file.type)}
                         <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-slate-800 truncate" title={file.name}>{file.name}</p>
-                            <p className="text-[10px] text-slate-400 uppercase tracking-wide">{file.size}</p>
+                            <a 
+                              href={file.url || (file.id ? `${apiBaseUrl}/documents/attachments/${file.id}/download` : '#')} 
+                              target="_blank" 
+                              rel="noreferrer"
+                              className="text-sm font-medium text-blue-600 truncate hover:underline"
+                              title={file.name}
+                            >
+                              {file.name}
+                            </a>
+                            <p className="text-[10px] text-slate-400 uppercase tracking-wide">{file.size || ''}</p>
                         </div>
                         {!readOnly && (
                             <button 

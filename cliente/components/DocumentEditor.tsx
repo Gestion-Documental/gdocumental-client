@@ -67,9 +67,23 @@ interface DocumentEditorProps {
   userRole: UserRole; 
   onCancel: () => void;
   onSave: (data: any) => void;
+  onDeleteAttachment?: (attachmentId: string) => void;
+  apiBaseUrl?: string;
 }
 
-const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToDoc, existingDoc, userRole, onCancel, onSave }) => {
+const normalizeAttachments = (doc?: Document | null): Attachment[] => {
+  if (!doc) return [];
+  if (doc.attachments && doc.attachments.length > 0) {
+    return doc.attachments.map((a) => ({
+      ...a,
+      name: a.name || (a as any).filename || 'Adjunto',
+      type: a.type || ((a.name || '').toLowerCase().endsWith('.pdf') ? 'PDF' : 'OTHER')
+    }));
+  }
+  return doc.metadata?.attachments || [];
+};
+
+const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToDoc, existingDoc, userRole, onCancel, onSave, onDeleteAttachment, apiBaseUrl }) => {
   // New Series State
   const [series, setSeries] = useState<SeriesType>(existingDoc?.series || 'ADM');
   const [docType, setDocType] = useState<DocumentType>(existingDoc?.type || DocumentType.OUTBOUND);
@@ -86,7 +100,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
       { id: 'c1', author: 'System', role: 'SYSTEM', text: 'Borrador iniciado.', createdAt: new Date(Date.now() - 86400000).toISOString() }
   ]);
   
-  const [attachments, setAttachments] = useState<Attachment[]>(existingDoc?.metadata?.attachments || []);
+  const [attachments, setAttachments] = useState<Attachment[]>(normalizeAttachments(existingDoc));
   
   // Carbon Copy (CC) State - Default to 'Archivo de Proyecto' for new docs
   const [ccList, setCcList] = useState<string[]>(existingDoc?.metadata?.ccList || ['Archivo de Proyecto']);
@@ -117,6 +131,19 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
   
   const hasDirectorChanges = userRole === 'DIRECTOR' && content !== originalContent;
 
+  const handleRemoveAttachment = async (id: string) => {
+      const target = attachments.find(a => a.id === id);
+      // If it's an existing attachment (no File), sync delete with backend
+      if (!isReadOnly && target && !target.file && onDeleteAttachment && existingDoc?.id) {
+          try {
+              await onDeleteAttachment(id);
+          } catch (e) {
+              alert((e as any)?.message || 'No se pudo eliminar el adjunto');
+          }
+      }
+      setAttachments(prev => prev.filter(a => a.id !== id));
+  };
+
   // Filter TRD by selected Series
   const trdOptions = MOCK_TRD_SERIES.filter(trd => {
       // Simple heuristic for mock: 100 series = ADM, 200 series = TEC
@@ -144,6 +171,10 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
          setOriginalContent(content);
      }
   }, [existingDoc, content]);
+
+  useEffect(() => {
+      setAttachments(normalizeAttachments(existingDoc));
+  }, [existingDoc?.id]);
 
   // Smart Template Logic
   useEffect(() => {
@@ -704,6 +735,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
                         attachments={attachments}
                         onChange={setAttachments}
                         readOnly={isReadOnly}
+                        onDeleteAttachment={handleRemoveAttachment}
+                        apiBaseUrl={apiBaseUrl}
                     />
                 </div>
                 <div className="h-20"></div>

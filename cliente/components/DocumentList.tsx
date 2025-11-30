@@ -260,6 +260,13 @@ const DocumentList: React.FC<DocumentListProps> = ({
       }
   };
 
+  const outboundHighlights = documents
+    .filter(d => d.type === DocumentType.OUTBOUND)
+    .slice(0, 4);
+  const inboundHighlights = documents
+    .filter(d => d.type === DocumentType.INBOUND)
+    .slice(0, 4);
+
   return (
     <div className="flex flex-col gap-4" id="document-list-anchor">
         
@@ -319,6 +326,66 @@ const DocumentList: React.FC<DocumentListProps> = ({
           </div>
         )}
 
+        {!isTransferView && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Comunicaciones Enviadas</h4>
+                <span className="text-[11px] text-slate-400">Últimas {outboundHighlights.length}</span>
+              </div>
+              {outboundHighlights.length === 0 ? (
+                <p className="text-sm text-slate-400">Sin envíos registrados.</p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {outboundHighlights.map(doc => (
+                    <div key={doc.id} className="flex items-start gap-3 text-sm">
+                      <div className="w-10 h-10 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center text-[11px] font-bold text-blue-700 shrink-0">
+                        {(doc.metadata?.sender || doc.author || 'SY').slice(0,2).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 text-xs text-slate-400">
+                          <span className="font-mono text-slate-600">{doc.radicadoCode || 'BORRADOR'}</span>
+                          <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">{doc.series}</span>
+                        </div>
+                        <p className="text-slate-800 font-semibold truncate">{doc.title}</p>
+                        <p className="text-xs text-slate-500 truncate">Para: {doc.metadata?.recipientName || doc.metadata?.recipient || 'No especificado'}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Comunicaciones Recibidas</h4>
+                <span className="text-[11px] text-slate-400">Últimas {inboundHighlights.length}</span>
+              </div>
+              {inboundHighlights.length === 0 ? (
+                <p className="text-sm text-slate-400">Sin ingresos registrados.</p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {inboundHighlights.map(doc => (
+                    <div key={doc.id} className="flex items-start gap-3 text-sm">
+                      <div className="w-10 h-10 rounded-full bg-orange-50 border border-orange-100 flex items-center justify-center text-[11px] font-bold text-orange-700 shrink-0">
+                        {(doc.metadata?.sender || 'IN').slice(0,2).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 text-xs text-slate-400">
+                          <span className="font-mono text-slate-600">{doc.radicadoCode || 'BORRADOR'}</span>
+                          <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">{doc.series}</span>
+                        </div>
+                        <p className="text-slate-800 font-semibold truncate">{doc.title}</p>
+                        <p className="text-xs text-slate-500 truncate">De: {doc.metadata?.sender || 'Remitente no definido'}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         <SearchToolbar 
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
@@ -342,7 +409,7 @@ const DocumentList: React.FC<DocumentListProps> = ({
                     <thead className="bg-slate-50 text-xs uppercase text-slate-500 font-semibold">
                     <tr>
                         <th className="px-6 py-4">Radicado / ID</th>
-                        <th className="px-6 py-4">Autor</th>
+                        <th className="px-6 py-4">Remitente / Destinatario</th>
                         <th className="px-6 py-4">Detalle / Asunto</th>
                         <th className="px-6 py-4">Estado</th>
                         {isTransferView ? (
@@ -357,13 +424,12 @@ const DocumentList: React.FC<DocumentListProps> = ({
                     {filteredDocs.map((doc) => {
                         const isVoid = doc.status === DocumentStatus.VOID;
                         
-                        // Author Initials
-                        const authorInitials = doc.author 
-                            ? doc.author.split(' ').map((n: string) => n[0]).join('').substring(0,2).toUpperCase() 
-                            : 'SY';
-                        
-                        // Author Name for Tooltip
-                        const authorName = doc.author || 'Sistema';
+                        // Parties
+                        const authorName = doc.author || doc.metadata?.sender || 'Sistema';
+                        const recipientName = doc.metadata?.recipientName || doc.metadata?.recipient || '—';
+                        const authorInitials = authorName
+                          ? authorName.split(' ').map((n: string) => n[0]).join('').substring(0,2).toUpperCase()
+                          : 'SY';
 
                         return (
                         <tr key={doc.id} className={`hover:bg-slate-50 transition-colors group ${isVoid ? 'bg-slate-50 opacity-60' : ''}`}>
@@ -382,13 +448,16 @@ const DocumentList: React.FC<DocumentListProps> = ({
                             </div>
                         </td>
                         <td className="px-6 py-4 align-top">
-                             <div className="flex items-center gap-2">
-                                <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold border border-blue-200 shadow-sm shrink-0" title={`Elaborado por: ${authorName}`}>
+                             <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-full bg-blue-50 text-blue-700 flex items-center justify-center text-xs font-bold border border-blue-100 shadow-sm shrink-0" title={`Elaborado por: ${authorName}`}>
                                     {authorInitials}
                                 </div>
-                                <span className="text-[10px] text-slate-500 font-medium truncate max-w-[80px] hidden xl:block" title={authorName}>
-                                    {authorName}
-                                </span>
+                                <div className="flex flex-col text-xs text-slate-500">
+                                    <span className="font-semibold text-slate-800 truncate max-w-[140px]" title={authorName}>
+                                        {authorName}
+                                    </span>
+                                    <span className="text-[11px] text-slate-400 uppercase tracking-wide">→ {recipientName}</span>
+                                </div>
                             </div>
                         </td>
                         <td className="px-6 py-4 align-top">
@@ -399,7 +468,15 @@ const DocumentList: React.FC<DocumentListProps> = ({
                             <span className="font-medium text-slate-700 text-xs">{doc.type}</span>
                             </div>
                             <div className={`font-medium text-slate-900 ${isVoid ? 'line-through decoration-slate-400' : ''}`}>{doc.title}</div>
-                            <div className="text-xs text-slate-400 mt-1">{new Date(doc.createdAt).toLocaleDateString()}</div>
+                            <div className="flex items-center gap-2 text-xs text-slate-400 mt-1">
+                                <span>{new Date(doc.createdAt).toLocaleDateString()}</span>
+                                {doc.metadata?.destination && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200">
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                                    {doc.metadata.destination}
+                                  </span>
+                                )}
+                            </div>
                         </td>
                         <td className="px-6 py-4 align-top">
                             <div className="flex flex-col gap-2 items-start">
