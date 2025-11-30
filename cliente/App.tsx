@@ -7,7 +7,7 @@ import {
 import { 
   getDocumentThread 
 } from './services/mockData';
-import { login as apiLogin, fetchDocuments, createInboundDocument, radicarDocument, fetchProjects } from './services/api';
+import { login as apiLogin, fetchDocuments, createInboundDocument, radicarDocument, fetchProjects, createDocument, uploadAttachment } from './services/api';
 
 import LoginPage from './components/LoginPage';
 import AdminDashboard from './components/AdminDashboard';
@@ -97,45 +97,57 @@ const App: React.FC = () => {
 
   // --- DOCUMENT HANDLERS ---
 
-  const handleSaveDocument = (data: any) => {
-     if (editorDoc) {
-         const updatedDocs = documents.map(d => {
-             if (d.id === editorDoc.id) {
-                 const updated = { ...d, ...data };
-                 updated.updatedAt = new Date().toISOString();
-                 return updated;
-             }
-             return d;
-         });
-         setDocuments(updatedDocs);
-     } else {
-         // Borrador local (pendiente de API para salidas/internos)
-         const newDoc: Document = {
-             id: `new-${Date.now()}`,
-             projectId: activeProjectId,
-             type: data.type,
-             series: data.series,
-             title: data.title,
-             status: data.forceStatus || DocumentStatus.DRAFT,
-             metadata: data.metadata,
-             content: data.content,
-             createdAt: new Date().toISOString(),
-             updatedAt: new Date().toISOString(),
-             relatedDocId: replyToDoc?.id,
-             requiresResponse: false, 
-             signatureMethod: SignatureMethod.DIGITAL,
-             author: currentUser?.fullName || 'Usuario',
-             dispatchMethod: null,
-             dispatchDate: null,
-             emailTrackingStatus: null
-         };
-         
-         setDocuments([newDoc, ...documents]);
+ const handleSaveDocument = async (data: any) => {
+     if (!token) {
+        alert('Necesitas iniciar sesión');
+        return;
      }
 
-     setIsEditorOpen(false);
-     setEditorDoc(null);
-     setReplyToDoc(null);
+     try {
+       // Crear borrador (nuevo)
+       let docId = editorDoc?.id;
+       if (!docId) {
+         const created = await createDocument(token, {
+           projectId: activeProjectId,
+           type: data.type,
+           series: data.series,
+           title: data.title,
+           content: data.content,
+           metadata: data.metadata,
+           retentionDate: data.retentionDate,
+           isPhysicalOriginal: data.isPhysicalOriginal,
+           physicalLocationId: data.physicalLocationId,
+         });
+         docId = created.id;
+       }
+
+       // Si hay que finalizar, radicar
+       if (data.shouldFinalize && docId) {
+         const updated = await radicarDocument(token, docId, SignatureMethod.DIGITAL);
+         setDocuments(docs => {
+           const existing = docs.some(d => d.id === updated.id);
+           return existing ? docs.map(d => d.id === updated.id ? updated : d) : [updated, ...docs];
+         });
+         setSignedDocView(updated);
+       } else {
+         // Subir adjuntos si hay
+         if (data.metadata?.attachments?.length && docId) {
+           for (const att of data.metadata.attachments) {
+             if (att.file) {
+               await uploadAttachment(token, docId, att.file);
+             }
+           }
+         }
+         // refresca lista después de crear/actualizar
+         fetchDocuments(token, activeProjectId).then(setDocuments).catch(() => {});
+       }
+     } catch (err: any) {
+       alert(err.message || 'No se pudo guardar el documento');
+     } finally {
+       setIsEditorOpen(false);
+       setEditorDoc(null);
+       setReplyToDoc(null);
+     }
   };
 
   const handleSignatureConfirm = async (method: SignatureMethod, _signatureImage?: string) => {

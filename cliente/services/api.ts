@@ -69,6 +69,29 @@ export async function fetchDocuments(token: string, projectId?: string): Promise
   return (data as any[]).map(mapDocument);
 }
 
+export async function createDocument(token: string, payload: {
+  projectId: string;
+  type: string;
+  series: string;
+  title: string;
+  content?: string;
+  metadata?: Record<string, any>;
+  retentionDate?: string;
+  isPhysicalOriginal?: boolean;
+  physicalLocationId?: string;
+}) {
+  const res = await fetch(`${API_URL}/documents/create`, {
+    method: 'POST',
+    headers: authHeader(token),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const msg = await res.json().catch(() => ({}));
+    throw new Error(msg.error || 'No se pudo crear el documento');
+  }
+  return res.json();
+}
+
 export async function createInboundDocument(token: string, payload: {
   projectId: string;
   series: string;
@@ -101,4 +124,20 @@ export async function radicarDocument(token: string, id: string, signatureMethod
     throw new Error(msg.error || 'No se pudo radicar el documento');
   }
   return mapDocument(await res.json());
+}
+
+export async function uploadAttachment(token: string, docId: string, file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const res = await fetch(`${API_URL}/documents/${docId}/attachments`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+  if (!res.ok) {
+    const msg = await res.json().catch(() => ({}));
+    throw new Error(msg.error || 'No se pudo subir el archivo');
+  }
+  return res.json();
 }

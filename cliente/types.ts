@@ -106,7 +106,9 @@ export interface Attachment {
   id: string;
   name: string;
   type: 'PDF' | 'EXCEL' | 'IMAGE' | 'EMAIL' | 'OTHER';
-  size: string;
+  size?: string | number;
+  url?: string;
+  file?: File; // solo en cliente antes de subir
 }
 
 export interface Project {
@@ -188,6 +190,7 @@ export interface Document {
 
   createdAt: string;
   updatedAt?: string;
+  attachments?: Attachment[];
 }
 
 export interface DocumentRelation {

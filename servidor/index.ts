@@ -5,6 +5,7 @@ import documentRouter from './document.controller';
 import { authMiddleware } from './auth.middleware';
 import authRouter from './auth.controller';
 import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 import projectRouter from './project.controller';
 
 dotenv.config();
@@ -38,6 +39,27 @@ async function ensureSeedData() {
       where: { id: p.id },
       update: { code: p.code, name: p.name },
       create: { id: p.id, code: p.code, name: p.name, seriesConfig: { adm: true, tec: true } as any },
+    });
+  }
+
+  // Usuarios base (demo)
+  const users = [
+    { email: 'admin@radika.local', fullName: 'Admin Radika', role: 'SUPER_ADMIN' },
+    { email: 'director@radika.local', fullName: 'Director Radika', role: 'DIRECTOR' },
+    { email: 'user@radika.local', fullName: 'Ingeniero Radika', role: 'ENGINEER' },
+  ];
+  const passwordHash = await bcrypt.hash('123456', 10);
+  for (const u of users) {
+    await prisma.user.upsert({
+      where: { email: u.email },
+      update: { fullName: u.fullName, role: u.role as any },
+      create: {
+        email: u.email,
+        fullName: u.fullName,
+        role: u.role as any,
+        passwordHash,
+        status: 'ACTIVE',
+      },
     });
   }
 }

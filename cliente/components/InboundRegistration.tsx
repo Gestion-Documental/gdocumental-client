@@ -42,11 +42,22 @@ const InboundRegistration: React.FC<InboundRegistrationProps> = ({ activeProject
       }
   };
 
-  const handleMockUpload = () => {
-      // Create a mock file for demonstration
-      setFile(new File(["mock pdf"], "scanned_doc.pdf", { type: "application/pdf" }));
-      // Use a placeholder image for preview since we can't real render PDF in this env
-      setPreviewUrl("https://via.placeholder.com/600x800.png?text=Preview+PDF+Escaneado");
+  const handleSelectFile = () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.pdf,.eml,.msg';
+      input.onchange = (e: any) => {
+          const f = e.target.files?.[0];
+          if (f) {
+            setFile(f);
+            if (f.name.endsWith('.pdf') || f.type.includes('image')) {
+                setPreviewUrl(URL.createObjectURL(f));
+            } else {
+                setPreviewUrl(null);
+            }
+          }
+      };
+      input.click();
   };
 
   const handleAnalyzeWithAI = async () => {
@@ -91,7 +102,8 @@ const InboundRegistration: React.FC<InboundRegistrationProps> = ({ activeProject
                   externalReference,
                   documentDate,
                   template: 'NONE'
-              }
+              },
+              file
           });
       }, 1500);
   };
@@ -118,7 +130,7 @@ const InboundRegistration: React.FC<InboundRegistrationProps> = ({ activeProject
                     <div 
                         onDragOver={(e) => e.preventDefault()}
                         onDrop={handleFileDrop}
-                        onClick={handleMockUpload}
+                        onClick={handleSelectFile}
                         className="border-2 border-dashed border-slate-400 rounded-xl p-10 flex flex-col items-center justify-center text-slate-500 cursor-pointer hover:bg-slate-100 hover:border-blue-400 transition-all w-full h-full"
                     >
                         <div className="w-16 h-16 bg-slate-300 rounded-full flex items-center justify-center mb-4">

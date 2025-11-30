@@ -10,14 +10,16 @@ interface FileAttachmentsProps {
 
 const FileAttachments: React.FC<FileAttachmentsProps> = ({ attachments, onChange, readOnly }) => {
 
-  const handleMockUpload = () => {
-    if (readOnly) return;
-    // Simulate adding files
-    const newFiles: Attachment[] = [
-        { id: `f-${Date.now()}-1`, name: 'Presupuesto_Obra_Civil.xlsx', type: 'EXCEL', size: '2.4 MB' },
-        { id: `f-${Date.now()}-2`, name: 'Cronograma_Fase_2.pdf', type: 'PDF', size: '1.1 MB' }
-    ];
-    onChange([...attachments, ...newFiles]);
+  const handleFileSelect = (files: FileList | null) => {
+    if (readOnly || !files) return;
+    const newAttachments: Attachment[] = Array.from(files).map((f) => ({
+      id: `f-${Date.now()}-${f.name}`,
+      name: f.name,
+      type: f.type.includes('pdf') ? 'PDF' : 'OTHER',
+      size: `${(f.size / 1024 / 1024).toFixed(2)} MB`,
+      file: f
+    }));
+    onChange([...attachments, ...newAttachments]);
   };
 
   const handleRemove = (id: string) => {
@@ -47,16 +49,21 @@ const FileAttachments: React.FC<FileAttachmentsProps> = ({ attachments, onChange
         </h3>
         
         {!readOnly && (
-            <div 
-                onClick={handleMockUpload}
+            <label 
                 className="border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 hover:bg-slate-100 hover:border-blue-400 cursor-pointer p-6 flex flex-col items-center justify-center transition-all group mb-4"
             >
+                <input 
+                  type="file" 
+                  multiple 
+                  className="hidden" 
+                  onChange={(e) => handleFileSelect(e.target.files)} 
+                />
                 <div className="w-10 h-10 rounded-full bg-slate-200 text-slate-400 flex items-center justify-center mb-2 group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors">
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                 </div>
                 <p className="text-sm font-medium text-slate-700">Arrastre aquí Planos, Presupuestos o Anexos</p>
-                <p className="text-xs text-slate-400 mt-1">o haga clic para explorar archivos (Demo)</p>
-            </div>
+                <p className="text-xs text-slate-400 mt-1">o haga clic para explorar archivos</p>
+            </label>
         )}
 
         {attachments.length > 0 && (
