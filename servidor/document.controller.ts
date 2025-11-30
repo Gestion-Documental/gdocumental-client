@@ -272,6 +272,7 @@ router.post(
 
       // Generate radicado
       const radicadoCode = await generateRadicado(projectId, series as any, 'IN');
+      const finalDeadline = deadline || metadata?.documentDate || new Date(Date.now() + 15 * 86400000).toISOString();
 
       const doc = await prisma.document.create({
         data: {
@@ -286,7 +287,7 @@ router.post(
             set: {
               ...metadata,
               requiresResponse: !!requiresResponse,
-              deadline: deadline || null,
+              deadline: finalDeadline || null,
               receptionMedium: receptionMedium || null,
               registeredBy: userId,
             },
@@ -408,8 +409,8 @@ router.post(
       const doc = await prisma.document.findUnique({ where: { id } });
       if (!doc) return res.status(404).json({ error: 'Documento no encontrado' });
 
-      if (doc.status === DocumentStatus.RADICADO) {
-        return res.status(400).json({ error: 'Ya está radicado' });
+      if (doc.status === DocumentStatus.RADICADO || doc.status === DocumentStatus.ARCHIVED || doc.status === DocumentStatus.VOID) {
+        return res.status(400).json({ error: 'Documento no editable (radicado/archivado/anulado)' });
       }
 
       const typeCode = doc.type === DocumentType.INBOUND ? 'IN' : doc.type === DocumentType.OUTBOUND ? 'OUT' : 'INT';

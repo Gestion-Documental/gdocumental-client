@@ -13,31 +13,18 @@ const JWT_SECRET = process.env.JWT_ACCESS_SECRET || process.env.JWT_SECRET;
 if (!JWT_SECRET) {
     throw new Error('JWT secret is not configured. Set JWT_ACCESS_SECRET or JWT_SECRET.');
 }
-// Simple login/auto-provision for demo/dev
 router.post('/login', async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) {
         return res.status(400).json({ error: 'Email y contraseña son obligatorios' });
     }
     try {
-        let user = await prisma.user.findUnique({ where: { email } });
-        if (!user) {
-            // Auto-provision user with DIRECTOR role for demo purposes
-            const passwordHash = await bcryptjs_1.default.hash(password, 10);
-            user = await prisma.user.create({
-                data: {
-                    email,
-                    passwordHash,
-                    fullName: email.split('@')[0],
-                    role: 'DIRECTOR',
-                },
-            });
-        }
-        else {
-            const ok = await bcryptjs_1.default.compare(password, user.passwordHash);
-            if (!ok) {
-                return res.status(401).json({ error: 'Credenciales inválidas' });
-            }
+        const user = await prisma.user.findUnique({ where: { email } });
+        if (!user)
+            return res.status(401).json({ error: 'Usuario no encontrado' });
+        const ok = await bcryptjs_1.default.compare(password, user.passwordHash);
+        if (!ok) {
+            return res.status(401).json({ error: 'Credenciales inválidas' });
         }
         const token = jsonwebtoken_1.default.sign({ sub: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
         return res.json({

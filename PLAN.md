@@ -1,19 +1,19 @@
 # Plan para llevar Radika a 100% real
 
 ## 1) Backend sólido
-- [ ] Definir modelo final de Documento/Adjuntos: adjuntos relacionales (Attachment) enlazados a Document (no solo metadata).
-- [ ] Endpoints CRUD completos:
-  - Crear/editar documentos: inbound/outbound/internal (ya existen `/create`, `/inbound`, `/radicar`; falta update de borrador).
-  - Adjuntos: `/documents/:id/attachments` (listado/eliminación además de upload).
-  - Entregas (delivery), void/anulación con motivo, cambios de estado (pendiente → aprobado → radicado).
+- [x] Definir modelo final de Documento/Adjuntos: adjuntos relacionales (Attachment) enlazados a Document.
+- [x] Endpoints CRUD completos:
+  - Crear/editar documentos: inbound/outbound/internal (existen `/create`, `/inbound`, `/radicar` y update de borrador).
+  - Adjuntos: `/documents/:id/attachments` (upload/list/delete/download).
+  - Entregas (delivery), void/anulación con motivo, cambios de estado (pendiente → aprobado → radicado básicos).
 - [ ] Auth real: eliminar auto-provision, seeds de usuarios/roles, refresh/expiración configurable.
 - [ ] Roles/permisos: middleware por rol y validaciones de estado (no radicar si ya está radicado, etc.).
 - [ ] Proyectos: CRUD, prefijos/series configurables; endpoint TRD si aplica.
 - [ ] Fechas/plazos: calcular/sincronizar `requiresResponse`, `deadline`, `isCompleted`.
 
 ## 2) Storage y archivos
-- [ ] Consolidar storage: `STORAGE_DRIVER=local|s3`; validar config al boot.
-- [ ] Servir adjuntos: endpoint de descarga con control de acceso; URLs presign en S3.
+- [x] Consolidar storage: `STORAGE_DRIVER=local|s3`; validar config al boot.
+- [x] Servir adjuntos: endpoint de descarga con control de acceso; URLs presign en S3.
 - [ ] OCR opcional para inbound (usar `ocr.service.ts` / Vision).
 
 ## 3) Base de datos y migraciones
