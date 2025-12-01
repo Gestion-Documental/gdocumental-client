@@ -7,6 +7,7 @@ import authRouter from './auth.controller';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import projectRouter from './project.controller';
+import userRouter from './user.controller';
 
 dotenv.config();
 
@@ -19,6 +20,7 @@ app.use(express.json());
 
 app.use('/auth', authRouter);
 app.use('/projects', authMiddleware, projectRouter);
+app.use('/users', authMiddleware, userRouter);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
