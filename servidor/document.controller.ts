@@ -7,6 +7,8 @@ import { upload } from './upload.middleware';
 import { getStorage, getStorageDriver } from './storage/index';
 import path from 'path';
 import fs from 'fs';
+import PDFDocument from 'pdfkit';
+import QRCode from 'qrcode';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -125,6 +127,62 @@ router.get(
     } catch (error) {
       console.error('Export CSV error:', error);
       return res.status(500).json({ error: 'No se pudo exportar el CSV' });
+    }
+  }
+);
+
+// Export etiqueta PDF con QR
+router.get(
+  '/:id/label',
+  checkRole([UserRole.ENGINEER, UserRole.DIRECTOR, UserRole.SUPER_ADMIN]),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const { id } = req.params;
+    try {
+      const doc = await prisma.document.findUnique({
+        where: { id },
+        include: { project: true },
+      });
+      if (!doc) return res.status(404).json({ error: 'Documento no encontrado' });
+      if (!doc.radicadoCode) return res.status(400).json({ error: 'Documento aún no radicado' });
+
+      const qrPayload = {
+        radicado: doc.radicadoCode,
+        project: doc.project?.code,
+        id: doc.id,
+        hash: (doc.metadata as any)?.securityHash || null,
+      };
+      const qrDataUrl = await QRCode.toDataURL(JSON.stringify(qrPayload), { margin: 1, width: 300 });
+      const qrBuffer = Buffer.from(qrDataUrl.split(',')[1], 'base64');
+
+      const pdf = new PDFDocument({ size: 'A6', margin: 16 });
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${doc.radicadoCode}.pdf"`);
+      pdf.pipe(res);
+
+      pdf.fontSize(12).fillColor('#0f172a').text('Radika • Etiqueta de Radicado', { align: 'left' });
+      pdf.moveDown(0.5);
+      pdf.fontSize(10).fillColor('#1f2937');
+      pdf.text(`Radicado: ${doc.radicadoCode}`);
+      pdf.text(`Proyecto: ${doc.project?.name || doc.projectId} (${doc.project?.code || ''})`);
+      pdf.text(`Serie: ${doc.series} • Tipo: ${doc.type}`);
+      pdf.text(`Estado: ${doc.status}`);
+      pdf.text(`Fecha: ${new Date(doc.createdAt).toLocaleString()}`);
+      if ((doc.metadata as any)?.deadline) {
+        pdf.text(`Deadline: ${new Date((doc.metadata as any).deadline).toLocaleDateString()}`);
+      }
+      if ((doc.metadata as any)?.trdCode) {
+        pdf.text(`TRD: ${(doc.metadata as any).trdCode}`);
+      }
+      pdf.text(`Asunto: ${doc.title}`, { width: 250 });
+
+      const qrX = pdf.page.width - 110;
+      const qrY = pdf.y - 80 > 16 ? pdf.y - 80 : pdf.y + 8;
+      pdf.image(qrBuffer, qrX, qrY, { fit: [90, 90] });
+
+      pdf.end();
+    } catch (err) {
+      console.error('Label export error:', err);
+      return res.status(500).json({ error: 'No se pudo generar la etiqueta' });
     }
   }
 );
