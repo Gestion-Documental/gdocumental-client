@@ -69,6 +69,7 @@ interface DocumentEditorProps {
   onSave: (data: any) => void;
   onDeleteAttachment?: (attachmentId: string) => void;
   apiBaseUrl?: string;
+  forceReadOnly?: boolean;
 }
 
 const normalizeAttachments = (doc?: Document | null): Attachment[] => {
@@ -83,7 +84,7 @@ const normalizeAttachments = (doc?: Document | null): Attachment[] => {
   return doc.metadata?.attachments || [];
 };
 
-const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToDoc, existingDoc, userRole, onCancel, onSave, onDeleteAttachment, apiBaseUrl }) => {
+const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToDoc, existingDoc, userRole, onCancel, onSave, onDeleteAttachment, apiBaseUrl, forceReadOnly }) => {
   // New Series State
   const [series, setSeries] = useState<SeriesType>(existingDoc?.series || 'ADM');
   const [docType, setDocType] = useState<DocumentType>(existingDoc?.type || DocumentType.OUTBOUND);
@@ -131,7 +132,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
   const isDirectorReviewing = userRole === 'DIRECTOR' && currentStatus === DocumentStatus.PENDING_APPROVAL;
   const isDirectorDrafting = userRole === 'DIRECTOR' && currentStatus === DocumentStatus.DRAFT;
   
-  const isReadOnly = isFinalized || (userRole === 'ENGINEER' && currentStatus === DocumentStatus.PENDING_APPROVAL);
+  const isReadOnly = isFinalized || (userRole === 'ENGINEER' && currentStatus === DocumentStatus.PENDING_APPROVAL) || !!forceReadOnly;
   
   const hasDirectorChanges = userRole === 'DIRECTOR' && content !== originalContent;
 

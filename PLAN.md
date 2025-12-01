@@ -17,16 +17,16 @@
 - [ ] OCR opcional para inbound (usar `ocr.service.ts` / Vision).
 
 ## 3) Base de datos y migraciones
-- [ ] Revisar schema Prisma: limpiar campos legacy; añadir relación Document↔Attachment.
-- [ ] Migraciones formales (`prisma migrate dev`), seeds de proyectos/usuarios base.
-- [ ] Índices/constraints: unicidad de radicado, secuencias por proyecto/serie/tipo.
+- [x] Revisar schema Prisma: limpiar campos legacy; añadir relación Document↔Attachment.
+- [x] Migraciones formales (`prisma migrate dev`), seeds de proyectos/usuarios base.
+- [x] Índices/constraints: unicidad de radicado, secuencias por proyecto/serie/tipo.
 
 ## 4) Frontend conectado
-- [ ] Reemplazar mocks en dashboard KPIs, alertas y timeline con datos de API.
+- [x] Reemplazar mocks en dashboard KPIs, alertas y timeline con datos de API.
 - [x] Editor: guardar borradores/outbounds/internos vía API, radicar con `/documents/:id/radicar`; validaciones UI.
 - [x] Adjuntos: usar `/documents/:id/attachments` en editor e inbound; mostrar links y tamaños reales.
 - [x] Inbound: usar archivo real; mostrar radicado y deadline real.
-- [ ] Listas/filtros: usar estados reales (draft/pending_approval/pending_scan/radicado/archived/void), requiresResponse/deadline para alertas.
+ - [x] Listas/filtros: usar estados reales (draft/pending_approval/pending_scan/radicado/archived/void), requiresResponse/deadline para alertas.
 
 ## 5) PDF/etiquetas y radicado
 - [ ] Generar radicado en backend con formato acordado (prefijo-serie-IN/OUT/INT-año-secuencia).

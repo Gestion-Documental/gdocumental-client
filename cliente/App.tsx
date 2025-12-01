@@ -4,9 +4,6 @@ import {
   Project, Document, DocumentType, DocumentStatus, 
   SignatureMethod, ViewState, User
 } from './types';
-import { 
-  getDocumentThread 
-} from './services/mockData';
 import { login as apiLogin, fetchDocuments, createInboundDocument, radicarDocument, fetchProjects, createDocument, uploadAttachment, fetchDocument, deleteAttachment, updateDelivery, updateDocument, updateStatus, API_URL, fetchProjectTrd } from './services/api';
 
 import LoginPage from './components/LoginPage';
@@ -58,6 +55,42 @@ const App: React.FC = () => {
   const projectDocuments = useMemo(() => 
     documents.filter(d => d.projectId === activeProjectId),
   [documents, activeProjectId]);
+
+  // Build thread for timeline using current document list (avoids mock data)
+  const computeDocumentThread = React.useCallback((rootId: string): Document[] => {
+    const current = documents.find(d => d.id === rootId);
+    if (!current) return [];
+
+    const visited = new Set<string>();
+    const thread: Document[] = [];
+
+    // Walk backwards using relatedDocId
+    let ptr: Document | undefined = current;
+    while (ptr?.relatedDocId) {
+      const parent = documents.find(d => d.id === ptr.relatedDocId);
+      if (!parent || visited.has(parent.id)) break;
+      thread.unshift(parent);
+      visited.add(parent.id);
+      ptr = parent;
+    }
+
+    // Add current doc
+    if (!visited.has(current.id)) {
+      thread.push(current);
+      visited.add(current.id);
+    }
+
+    // Add direct children
+    const children = documents.filter(d => d.relatedDocId === rootId);
+    children.forEach(child => {
+      if (!visited.has(child.id)) {
+        thread.push(child);
+        visited.add(child.id);
+      }
+    });
+
+    return thread.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  }, [documents]);
 
   // Fetch projects on login
   React.useEffect(() => {
@@ -434,6 +467,7 @@ const App: React.FC = () => {
                 onSave={handleSaveDocument}
                 onDeleteAttachment={(attId) => editorDoc?.id && handleDeleteAttachment(editorDoc.id, attId)}
                 apiBaseUrl={API_URL}
+                forceReadOnly={!!editorDoc && (editorDoc.status === DocumentStatus.PENDING_SCAN || editorDoc.status === DocumentStatus.ARCHIVED || editorDoc.status === DocumentStatus.VOID)}
             />
         );
     }
@@ -548,9 +582,9 @@ const App: React.FC = () => {
            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex justify-end">
                <div className="w-full max-w-2xl h-full animate-slide-in-right">
                    <TraceabilityTimeline 
-                     documents={getDocumentThread(threadDoc.id, documents)}
-                     onClose={() => setThreadDoc(null)}
-                   />
+                    documents={computeDocumentThread(threadDoc.id)}
+                    onClose={() => setThreadDoc(null)}
+                  />
                </div>
            </div>
        )}

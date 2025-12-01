@@ -3,7 +3,6 @@
 import React, { useState, useMemo } from 'react';
 import { Document, DocumentStatus, DocumentType, DateRangeOption, SeriesType, UserRole } from '../types';
 import SearchToolbar from './SearchToolbar';
-import { getArchivePath, getSeriesName } from '../services/mockData';
 
 interface DocumentListProps {
   documents: Document[];
@@ -209,7 +208,7 @@ const DocumentList: React.FC<DocumentListProps> = ({
   };
 
   const handleExportFUID = () => {
-      // AGN Colombia FUID Columns
+      // AGN Colombia FUID Columns (adapted)
       const headers = [
           "No. Orden",
           "Codigo Serie",
@@ -222,14 +221,13 @@ const DocumentList: React.FC<DocumentListProps> = ({
       ];
 
       const rows = filteredDocs.map((doc, idx) => {
-          const path = getArchivePath(doc.physicalLocationId);
-          const box = path.find(p => p.type === 'BOX')?.name || "Sin Caja";
+          const box = doc.physicalLocationId || "Sin Caja";
           const support = doc.receptionMedium?.includes('DIGITAL') ? "Electronico" : "Papel";
-          const seriesName = getSeriesName(doc.metadata.trdCode);
+          const seriesName = doc.metadata?.trdLabel || doc.metadata?.trdCode || doc.series;
 
           return [
               idx + 1,
-              doc.metadata.trdCode || "S/C",
+              doc.metadata?.trdCode || "S/C",
               `"${seriesName}"`,
               `"${doc.title.replace(/"/g, '""')}"`,
               new Date(doc.createdAt).toISOString().slice(0,10), // Simplified dates

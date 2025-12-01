@@ -5,21 +5,18 @@ Este repo tiene dos carpetas:
 - `servidor/`: backend Express + Prisma + MySQL (API básica ya lista).
 
 ## Estado actual
-- Base de datos: MySQL local (`DATABASE_URL` en `servidor/.env`).
-- Migraciones Prisma aplicadas: enums alineados a tipos reales (`INBOUND/OUTBOUND/INTERNAL`, estados `DRAFT/PENDING_APPROVAL/PENDING_SCAN/RADICADO/ARCHIVED/VOID`).
+- Base de datos: MySQL (`DATABASE_URL` en `servidor/.env`).
+- Migraciones Prisma aplicadas (vía `prisma migrate deploy`): enums reales y `Document.content` LONGTEXT; `Project.trd` (JSON) para tabla de retención documental.
 - Backend en `servidor/`:
-  - Auth: `/auth/login` (auto-provisiona usuario si no existe, hash con bcrypt) y `/auth/me`.
-  - Documentos (protegido con JWT):
-    - `GET /documents` (opcional `?projectId`).
-    - `POST /documents/inbound`: registra entrada externa y radica de inmediato.
-    - `POST /documents/:id/radicar`: radica un doc existente (OUTBOUND físico → `PENDING_SCAN`).
-    - Siguen operativos: `/documents/create` (borrador), `/documents/sign`, `/documents/void`.
-  - Middleware de roles: `ENGINEER/DIRECTOR/SUPER_ADMIN` (configurable).
-  - Radicado: `generateRadicado(projectId, series, IN|OUT|INT)` formatea `PREFIJO-SERIE-TIPO-AÑO-#####`.
-  - Storage: hoy local (`LOCAL_STORAGE_PATH`), S3 preparado vía env (`STORAGE_DRIVER`, `AWS_*`).
+  - Auth: login con usuarios seeded, JWT access/refresh; `/auth/login`, `/auth/me`.
+  - Documentos (JWT): `GET /documents`, `POST /documents/create` (borrador), `/documents/inbound`, `/documents/:id/radicar`, `/documents/:id/status`, `/documents/:id/delivery`, adjuntos `/documents/:id/attachments` (upload/list/delete).
+  - Roles: `ENGINEER` edita borradores; `DIRECTOR` radica/firma y puede borrar adjuntos; validaciones de estado para radicar/entrega/adjuntos.
+  - TRD: `/projects/:id/trd` (get/update) y validación de `trdCode` en creación/edición de documentos; cálculo de `requiresResponse`/`deadline` por TRD.
+  - Radicado: `generateRadicado(projectId, series, IN|OUT|INT)` → `PREFIJO-SERIE-TIPO-AÑO-#####`.
+  - Storage: local (`LOCAL_STORAGE_PATH`); S3 listo via `STORAGE_DRIVER=s3` + `AWS_*`.
 - Front en `cliente/`:
-  - UI mock de dashboard, editor tipo Word (TinyMCE), radicación simulada (`simulateRadication`) y datos de ejemplo.
-  - Inbound “Radicar Entrada” genera docs mock; pendiente de conectar al backend real.
+  - Usa backend real: login con usuarios seeded, dashboard con datos reales, editor conecta a TRD y adjuntos, permisos UI según rol/estado.
+  - Manejo de 401/403: logout/redirección.
 
 ## Requisitos
 - Node 18+
@@ -37,17 +34,33 @@ Este repo tiene dos carpetas:
    npm install
    npx prisma generate
    ```
-   Si cambias el schema, genera SQL con `npx prisma migrate diff --from-url <db> --to-schema-datamodel schema.prisma --script` y aplícalo al MySQL.
-3. Levanta dev:
+3. Migraciones y seeds (dev/prod):
+   ```bash
+   npx prisma migrate deploy
+   npm run prisma:seed   # crea proyectos con TRD y usuarios admin/director/engineer (pass 123456)
+   ```
+4. Levanta dev:
    ```bash
    npm run dev
    ```
-4. Endpoints principales:
+5. Endpoints principales:
    - `POST /auth/login` { email, password } → { token, user }
    - `GET /auth/me` con `Authorization: Bearer <token>`
    - `GET /documents?projectId=...`
-   - `POST /documents/inbound` (JWT) body mínimo: `{ projectId, series, title, metadata, requiresResponse, deadline, receptionMedium }`
-   - `POST /documents/:id/radicar` (JWT) `{ signatureMethod: "DIGITAL"|"PHYSICAL" }`
+   - `POST /documents/create` (borrador outbound/internal) `{ projectId, series, type, title, content, trdCode? }`
+   - `POST /documents/inbound` (radica entrada) `{ projectId, series, title, metadata, requiresResponse?, deadline?, receptionMedium }`
+   - `POST /documents/:id/radicar` `{ signatureMethod: "DIGITAL"|"PHYSICAL" }`
+   - `POST /documents/:id/status` (cambios válidos: draft ↔ pending_approval ↔ radicado, etc.)
+   - `POST /documents/:id/delivery` (entregas para OUTBOUND radicados)
+   - Adjuntos: `POST/GET/DELETE /documents/:id/attachments`
+   - TRD por proyecto: `GET/PUT /projects/:id/trd`
+
+### Variables de entorno clave
+En `servidor/.env` (prod):
+- `DATABASE_URL` (MySQL)
+- `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` (obligatorias)
+- `STORAGE_DRIVER` (`local`|`s3`), `LOCAL_STORAGE_PATH` (local)
+- Si `s3`: `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `STORAGE_BUCKET`
 
 ## Front (cliente)
 1. Instala deps:
@@ -59,10 +72,9 @@ Este repo tiene dos carpetas:
    ```bash
    npm run dev -- --host --port 3000
    ```
-3. Hoy consume mocks; siguiente paso es apuntarlo al backend real y reemplazar `MOCK_*` y `simulateRadication` por llamadas REST.
+3. Usa el backend real: configura `VITE_API_URL` y verifica que el login funcione con los usuarios seeded.
 
 ## Próximos pasos sugeridos
-1) Conectar el front al backend: login real, listar documentos y crear inbound usando `/documents/inbound`.
-2) Añadir subida de archivos (local) y switch a S3 por env.
-3) Radicación de salidas/internos con estados y PDFs firmados/escaneados.
-4) Semillas de usuarios/proyectos y autenticación más estricta (sin auto-provision).
+1) Afinar límites de subida (multer) y firma/etiqueta PDF.
+2) Endpoints de export (listado maestro, etiqueta QR).
+3) Endurecer expiración de refresh tokens y rotación en prod.

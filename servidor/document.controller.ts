@@ -25,7 +25,6 @@ function computeDeadlineFromTrd(metadata: any, projectTrd: any[] | null | undefi
   // fallback: solo si se explicitó requiresResponse
   if (metadata?.requiresResponse) {
     const final = new Date(dateBase.getTime() + 15 * 86400000);
-    const final = new Date(dateBase.getTime() + days * 86400000);
     return final.toISOString();
   }
   return null;
@@ -487,6 +486,16 @@ router.post(
 
       if (!projectId || !type || !series) {
         return res.status(400).json({ error: 'Faltan campos obligatorios (projectId, type, series)' });
+      }
+
+      // Validar TRD contra proyecto si se envía
+      if (metadata?.trdCode) {
+        const project = await prisma.project.findUnique({ where: { id: projectId }, select: { trd: true } });
+        const trdList = project?.trd || [];
+        const found = trdList.find((t: any) => (t.code || '').toLowerCase() === (metadata.trdCode || '').toLowerCase());
+        if (!found) {
+          return res.status(400).json({ error: 'TRD no válida para el proyecto' });
+        }
       }
 
       const doc = await prisma.document.create({
