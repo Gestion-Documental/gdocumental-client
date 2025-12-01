@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { Document, DocumentStatus, DocumentType, DateRangeOption, SeriesType, UserRole } from '../types';
 import SearchToolbar from './SearchToolbar';
+import { downloadLabel, updateStatus, uploadAttachment, fetchDocument } from '../services/api';
 
 interface DocumentListProps {
   documents: Document[];
@@ -18,6 +19,8 @@ interface DocumentListProps {
   onVoid: (doc: Document) => void;
   onTransferBatch?: (docIds: string[]) => void; // New Handler
   onCloseTransferView?: () => void; // New Handler
+  token?: string; // needed for label/download/upload
+  onReplaceDoc?: (doc: Document) => void;
 }
 
 type TabOption = 'ALL' | 'APPROVALS';
@@ -26,7 +29,9 @@ const DocumentList: React.FC<DocumentListProps> = ({
     documents, userRole, attentionFilter = false, onClearAttentionFilter,
     isTransferView = false,
     onOpenFinalizeModal, onViewThread, onReply, onEdit, onViewDossier, onVoid,
-    onTransferBatch, onCloseTransferView
+    onTransferBatch, onCloseTransferView,
+    token,
+    onReplaceDoc
 }) => {
   const [activeTab, setActiveTab] = useState<TabOption>('ALL');
   
@@ -256,6 +261,29 @@ const DocumentList: React.FC<DocumentListProps> = ({
               onTransferBatch(ids);
           }
       }
+  };
+
+  const handleDownloadLabel = async (doc: Document) => {
+    if (!token) return;
+    try {
+      const blob = await downloadLabel(token, doc.id);
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+    } catch (err: any) {
+      alert(err.message || 'No se pudo generar la etiqueta');
+    }
+  };
+
+  const handleUploadScanAndClose = async (doc: Document, file: File) => {
+    if (!token) return;
+    try {
+      await uploadAttachment(token, doc.id, file);
+      const updated = await updateStatus(token, doc.id, DocumentStatus.RADICADO);
+      const mapped = await fetchDocument(token, doc.id);
+      onReplaceDoc && onReplaceDoc(mapped);
+    } catch (err: any) {
+      alert(err.message || 'No se pudo cerrar el pendiente de escaneo');
+    }
   };
 
   const outboundHighlights = documents
@@ -551,6 +579,32 @@ const DocumentList: React.FC<DocumentListProps> = ({
                                     >
                                         Review
                                     </button>
+                                )}
+
+                                {doc.status === DocumentStatus.RADICADO && (
+                                  <button
+                                    onClick={() => handleDownloadLabel(doc)}
+                                    className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-all"
+                                    title="Etiqueta PDF"
+                                  >
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v8m0 0l-3-3m3 3l3-3m2 5H7a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v6a2 2 0 01-2 2z" /></svg>
+                                  </button>
+                                )}
+
+                                {doc.type === DocumentType.OUTBOUND && doc.status === DocumentStatus.PENDING_SCAN && (
+                                  <label className="p-2 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-lg transition-all cursor-pointer" title="Cargar escaneo y cerrar a RADICADO">
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1M12 12v7m0-7l-3 3m3-3l3 3m0-11l-3-3-3 3M4 7h16" /></svg>
+                                    <input
+                                      type="file"
+                                      className="hidden"
+                                      accept="application/pdf,image/*"
+                                      onChange={(e) => {
+                                        const f = e.target.files?.[0];
+                                        if (f) handleUploadScanAndClose(doc, f);
+                                        e.target.value = '';
+                                      }}
+                                    />
+                                  </label>
                                 )}
 
                                 {/* Solo Director puede radicar/finalizar; ocultar botones si no procede */}

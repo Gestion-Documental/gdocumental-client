@@ -239,3 +239,14 @@ export async function updateDelivery(token: string, id: string, payload: { recei
   }
   return res.json();
 }
+
+// Descargar etiqueta PDF de un documento radicado
+export async function downloadLabel(token: string, id: string) {
+  const res = await fetch(`${API_URL}/documents/${id}/label`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await ensureAuth(res as any);
+  if (!res.ok) throw new Error('No se pudo generar la etiqueta');
+  const blob = await res.blob();
+  return blob;
+}

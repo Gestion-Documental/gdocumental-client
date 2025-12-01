@@ -545,16 +545,20 @@ const App: React.FC = () => {
                         setReplyToDoc(null);
                         setIsEditorOpen(true);
                     }}
-                    onViewDossier={async (doc) => {
-                        if (!token) return;
-                        try {
-                          const fullDoc = await fetchDocument(token, doc.id);
-                          setDossierDoc(fullDoc);
-                        } catch {
-                          setDossierDoc(doc);
-                        }
-                    }}
+                 onViewDossier={async (doc) => {
+                     if (!token) return;
+                     try {
+                       const fullDoc = await fetchDocument(token, doc.id);
+                       setDossierDoc(fullDoc);
+                     } catch {
+                       setDossierDoc(doc);
+                     }
+                 }}
                     onVoid={(doc) => handleVoidDocument(doc.id, window.prompt("⚠️ Motivo de la anulación (Obligatorio ISO 9001):") || "")}
+                    token={token || undefined}
+                    onReplaceDoc={(updated) => {
+                      setDocuments(prev => prev.map(d => d.id === updated.id ? updated : d));
+                    }}
                  />
              </div>
         </div>
