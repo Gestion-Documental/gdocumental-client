@@ -448,13 +448,14 @@ router.delete(
 // Update status (generic)
 router.post(
   '/:id/status',
-  checkRole([UserRole.DIRECTOR]),
+  checkRole([UserRole.DIRECTOR, UserRole.ENGINEER]),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
       const { status } = req.body as { status: DocumentStatus };
       const doc = await prisma.document.findUnique({ where: { id } });
       if (!doc) return res.status(404).json({ error: 'Documento no encontrado' });
+      const role = req.user?.role;
 
       // Validaciones simples
       if (doc.status === DocumentStatus.VOID) return res.status(400).json({ error: 'Documento anulado' });
@@ -463,6 +464,11 @@ router.post(
       }
       if (doc.status === DocumentStatus.RADICADO && status === DocumentStatus.PENDING_APPROVAL) {
         return res.status(400).json({ error: 'No se puede revertir un radicado a aprobación' });
+      }
+
+      // Restricción: ENGINEER solo puede enviar a PENDING_APPROVAL
+      if (role === UserRole.ENGINEER && status !== DocumentStatus.PENDING_APPROVAL) {
+        return res.status(403).json({ error: 'No autorizado para esta transición' });
       }
 
       const validTransitions: Record<DocumentStatus, DocumentStatus[]> = {

@@ -156,8 +156,10 @@ const App: React.FC = () => {
 
     try {
       const attachmentsToUpload = (data.metadata?.attachments || []).filter((att: any) => att.file);
+      const contentWithRef = (data.content || '').replace(/\[Asunto\]/gi, data.title || '');
       const metadataClean = {
          ...(data.metadata || {}),
+         reference: data.title || data.metadata?.reference,
          attachments: (data.metadata?.attachments || []).map((att: any) => ({
            id: att.id,
            name: att.name,
@@ -171,21 +173,21 @@ const App: React.FC = () => {
        let docId = editorDoc?.id;
        if (!docId) {
          const created = await createDocument(token, {
-           projectId: activeProjectId,
-           type: data.type,
-           series: data.series,
-           title: data.title,
-           content: data.content,
-           metadata: metadataClean,
-           retentionDate: data.retentionDate,
-           isPhysicalOriginal: data.isPhysicalOriginal,
-           physicalLocationId: data.physicalLocationId,
+         projectId: activeProjectId,
+         type: data.type,
+         series: data.series,
+         title: data.title,
+         content: contentWithRef,
+         metadata: metadataClean,
+         retentionDate: data.retentionDate,
+         isPhysicalOriginal: data.isPhysicalOriginal,
+         physicalLocationId: data.physicalLocationId,
          });
          docId = created.id;
        } else {
          await updateDocument(token, docId, {
            title: data.title,
-           content: data.content,
+           content: contentWithRef || data.content,
            metadata: {
               ...(editorDoc?.metadata || {}),
              ...(metadataClean || {}),
@@ -409,7 +411,8 @@ const App: React.FC = () => {
       setDocuments(docs => docs.map(d => d.id === refreshed.id ? refreshed : d));
       if (dossierDoc && dossierDoc.id === docId) setDossierDoc(refreshed);
     } catch (err: any) {
-      if (err.code === 401 || err.code === 403) return handleLogout();
+      if (err.code === 401) return handleLogout();
+      if (err.code === 403) return addToast('No tienes permiso para esta acción', 'error');
       addToast(err.message || 'No se pudo actualizar el estado', 'error');
     }
   };
