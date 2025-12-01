@@ -40,6 +40,6 @@
 - [ ] Logs/auditoría mínima en backend para acciones clave.
 
 ## 7) Infra y envs
-- [ ] Configs `.env` claras para dev/prod; `VITE_API_URL`.
-- [ ] Scripts de seed/arranque y docs de despliegue.
-- [ ] Opcional: parametrizar `PORT` y evitar EADDRINUSE.
+- [x] Configs `.env` claras para dev/prod; `VITE_API_URL`.
+- [x] Scripts de seed/arranque y docs de despliegue.
+- [x] Opcional: parametrizar `PORT` y evitar EADDRINUSE.

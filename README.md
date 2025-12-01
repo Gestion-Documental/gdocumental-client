@@ -59,9 +59,14 @@ Este repo tiene dos carpetas:
 ### Variables de entorno clave
 En `servidor/.env` (prod):
 - `DATABASE_URL` (MySQL)
+- `PORT` (opcional, default 4000)
 - `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` (obligatorias)
 - `STORAGE_DRIVER` (`local`|`s3`), `LOCAL_STORAGE_PATH` (local)
 - Si `s3`: `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `STORAGE_BUCKET`
+- Opcional: `RADIKA_LOGO_URL` para branding de etiquetas PDF
+
+En `cliente/.env`:
+- `VITE_API_URL` (por ej. `http://localhost:4000` o URL de prod)
 
 ## Front (cliente)
 1. Instala deps:
