@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import documentRouter from './document.controller';
@@ -30,6 +30,12 @@ app.get('/health', (_req, res) => {
 
 // Rutas protegidas
 app.use('/documents', authMiddleware, documentRouter);
+
+// Error handling middleware
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  console.error(err.stack);
+  res.status(500).json({ error: 'Something broke!' });
+});
 
 async function ensureSeedData() {
   // Proyectos base para que el front pueda referenciar IDs/prefix

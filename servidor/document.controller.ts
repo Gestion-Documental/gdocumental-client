@@ -670,11 +670,20 @@ router.post(
       // Generate radicado atomically
       const radicadoCode = await generateRadicado(doc.projectId, doc.series as any, doc.type === 'INBOUND' ? 'IN' : 'OUT');
 
+      const signer = await prisma.user.findUnique({ where: { id: userId }, select: { signatureImage: true } });
       const updated = await prisma.document.update({
         where: { id: documentId },
         data: {
           radicadoCode,
           status: DocumentStatus.RADICADO,
+          metadata: {
+            set: {
+              signatureMethod: 'DIGITAL',
+              signatureImage: signer?.signatureImage || null,
+              radicadoAt: new Date().toISOString(),
+            },
+          },
+          signatureImage: signer?.signatureImage || null,
           updatedAt: new Date()
         }
       });
@@ -731,6 +740,8 @@ router.post(
         finalDeadline = computeDeadlineFromTrd(doc.metadata, project?.trd);
       }
 
+      const signer = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { signatureImage: true } });
+
       const updated = await prisma.document.update({
         where: { id },
         data: {
@@ -740,10 +751,12 @@ router.post(
             set: {
               ...(doc.metadata as any),
               signatureMethod: signatureMethod || 'DIGITAL',
+              signatureImage: signer?.signatureImage || (doc.metadata as any)?.signatureImage || null,
               radicadoAt: new Date().toISOString(),
               deadline: finalDeadline ?? null,
             },
           },
+          signatureImage: signer?.signatureImage || null,
           updatedAt: new Date(),
         },
       });

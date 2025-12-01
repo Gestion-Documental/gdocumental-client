@@ -41,6 +41,7 @@ const mapDocument = (doc: any): Document => {
     receptionMedium: doc.metadata?.receptionMedium,
     physicalLocationId: doc.physicalLocationId || undefined,
     author: doc.metadata?.author || '',
+    signatureImage: doc.signatureImage || doc.metadata?.signatureImage || undefined,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt || undefined,
     attachments: (doc.attachments || []).map((a: any) => ({
@@ -249,6 +250,23 @@ export async function downloadLabel(token: string, id: string) {
   if (!res.ok) throw new Error('No se pudo generar la etiqueta');
   const blob = await res.blob();
   return blob;
+}
+
+export async function uploadSignature(token: string, file?: File, pin?: string) {
+  const formData = new FormData();
+  if (file) formData.append('file', file);
+  if (pin) formData.append('pin', pin);
+  const res = await fetch(`${API_URL}/users/me/signature`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+  await ensureAuth(res as any);
+  if (!res.ok) {
+    const msg = await res.json().catch(() => ({}));
+    throw new Error(msg.error || 'No se pudo actualizar la firma');
+  }
+  return res.json();
 }
 
 export async function refreshAccessToken(refreshToken: string) {

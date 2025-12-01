@@ -57,6 +57,8 @@ model User {
   avatarUrl      String?
   mustUpdatePassword Boolean @default(false)
   tokenVersion   Int         @default(0)
+  failedLoginAttempts Int    @default(0)
+  lockedUntil    DateTime?
   entity         String?
   cargo          String?
   canDownload    Boolean     @default(true)
