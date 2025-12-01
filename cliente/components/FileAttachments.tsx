@@ -8,19 +8,36 @@ interface FileAttachmentsProps {
   readOnly?: boolean;
   onDeleteAttachment?: (id: string) => void;
   apiBaseUrl?: string;
+  maxSizeMb?: number;
+  allowedTypes?: string[]; // mime prefixes e.g., ['application/pdf','image/']
+  onError?: (msg: string) => void;
 }
 
-const FileAttachments: React.FC<FileAttachmentsProps> = ({ attachments, onChange, readOnly, onDeleteAttachment, apiBaseUrl = '' }) => {
+const FileAttachments: React.FC<FileAttachmentsProps> = ({ attachments, onChange, readOnly, onDeleteAttachment, apiBaseUrl = '', maxSizeMb = 15, allowedTypes = ['application/pdf', 'image/'], onError }) => {
 
   const handleFileSelect = (files: FileList | null) => {
     if (readOnly || !files) return;
-    const newAttachments: Attachment[] = Array.from(files).map((f) => ({
-      id: `f-${Date.now()}-${f.name}`,
-      name: f.name,
-      type: f.type.includes('pdf') ? 'PDF' : 'OTHER',
-      size: `${(f.size / 1024 / 1024).toFixed(2)} MB`,
-      file: f
-    }));
+    const newAttachments: Attachment[] = [];
+    for (const f of Array.from(files)) {
+      const sizeMb = f.size / 1024 / 1024;
+      const typeAllowed = allowedTypes.some((t) => f.type.startsWith(t));
+      if (sizeMb > maxSizeMb) {
+        onError?.(`El archivo ${f.name} supera el límite de ${maxSizeMb} MB`);
+        continue;
+      }
+      if (!typeAllowed) {
+        onError?.(`Tipo no permitido: ${f.type || 'desconocido'}`);
+        continue;
+      }
+      newAttachments.push({
+        id: `f-${Date.now()}-${f.name}`,
+        name: f.name,
+        type: f.type.includes('pdf') ? 'PDF' : 'OTHER',
+        size: `${(f.size / 1024 / 1024).toFixed(2)} MB`,
+        file: f
+      });
+    }
+    if (newAttachments.length === 0) return;
     onChange([...attachments, ...newAttachments]);
   };
 
