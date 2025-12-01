@@ -64,6 +64,8 @@ router.post('/login', async (req: Request, res: Response) => {
         email: user.email,
         fullName: user.fullName,
         role: user.role,
+        signatureUrl: user.signatureImage || undefined,
+        securityPin: user.signaturePin || undefined,
       },
     });
   } catch (error) {
@@ -80,7 +82,7 @@ router.post('/refresh', async (req: Request, res: Response) => {
     const payload = jwt.verify(refreshToken, JWT_REFRESH_SECRET) as { sub: string; tokenVersion: number };
     const user = await prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { id: true, email: true, role: true, tokenVersion: true, fullName: true },
+      select: { id: true, email: true, role: true, tokenVersion: true, fullName: true, signatureImage: true, signaturePin: true },
     });
     if (!user) return res.status(401).json({ error: 'Usuario no encontrado' });
     if ((user.tokenVersion || 0) !== payload.tokenVersion) {
@@ -91,7 +93,7 @@ router.post('/refresh', async (req: Request, res: Response) => {
       JWT_SECRET,
       { expiresIn: JWT_ACCESS_EXPIRES },
     );
-    return res.json({ token, user });
+    return res.json({ token, user: { ...user, signatureUrl: user.signatureImage || undefined, securityPin: user.signaturePin || undefined } });
   } catch (err) {
     return res.status(401).json({ error: 'Refresh token inválido' });
   }
@@ -124,10 +126,10 @@ router.get('/me', async (req: Request, res: Response) => {
     const payload = jwt.verify(token, JWT_SECRET) as { sub: string };
     const user = await prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { id: true, email: true, fullName: true, role: true },
+      select: { id: true, email: true, fullName: true, role: true, signatureImage: true, signaturePin: true },
     });
     if (!user) return res.status(401).json({ error: 'Usuario no encontrado' });
-    res.json(user);
+    res.json({ ...user, signatureUrl: user.signatureImage || undefined, securityPin: user.signaturePin || undefined });
   } catch (error) {
     return res.status(401).json({ error: 'Token inválido' });
   }

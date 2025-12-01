@@ -3,6 +3,7 @@ import React, { useRef, useState } from 'react';
 import { User } from '../types';
 import { useToast } from './ToastProvider';
 import { uploadSignature } from '../services/api';
+import { API_URL } from '../services/api';
 
 interface UserProfileProps {
   user: User;
@@ -42,11 +43,9 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, token, onBack }) => {
           return addToast('Solo se permite PNG transparente para la firma', 'error');
         }
         const { user: updated } = await uploadSignature(token, file, pin);
-        if (updated.signatureImage) {
-          setSignature(updated.signatureImage);
-        } else {
-          setSignature(URL.createObjectURL(file));
-        }
+        const url = updated.signatureImage || URL.createObjectURL(file);
+        const finalUrl = url.startsWith('/uploads') ? `${API_URL}${url}` : url;
+        setSignature(finalUrl);
         addToast('Firma actualizada', 'success');
       } catch (e: any) {
         addToast(e.message || 'No se pudo subir la firma', 'error');
