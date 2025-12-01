@@ -1,30 +1,52 @@
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { User } from '../types';
+import { useToast } from './ToastProvider';
+import { uploadSignature } from '../services/api';
 
 interface UserProfileProps {
   user: User;
+  token: string;
   onBack: () => void;
 }
 
-const UserProfile: React.FC<UserProfileProps> = ({ user, onBack }) => {
+const UserProfile: React.FC<UserProfileProps> = ({ user, token, onBack }) => {
   const [pin, setPin] = useState(user.securityPin || '');
   const [signature, setSignature] = useState(user.signatureUrl || '');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { addToast } = useToast();
   
   // Mock states for form
   const [isSaved, setIsSaved] = useState(false);
 
-  const handleSave = () => {
+  const handleSave = async () => {
+      try {
+        await uploadSignature(token, undefined, pin);
+        addToast('Perfil actualizado', 'success');
+      } catch (e: any) {
+        addToast(e.message || 'No se pudo guardar el perfil', 'error');
+      }
       setIsSaved(true);
-      setTimeout(() => setIsSaved(false), 3000);
-      // Here you would typically call an API to update the user profile
+      setTimeout(() => setIsSaved(false), 2000);
   };
 
-  const handleDropSignature = (e: React.DragEvent<HTMLDivElement>) => {
+  const handleDropSignature = async (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault();
-      // In a real app, handle file read. Here mock update.
-      alert("Simulando carga de imagen PNG...");
-      setSignature("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMDAgNjAiPjxwYXRoIGQ9Ik0xMCw1MCBDMjAsNDAgNDAsMTAgNjAsMjAgUzgwLDgwIDEwMCw1MCBTMTUwLDIwIDE5MCw1MCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMDAwIiBzdHJva2Utd2lkdGg9IjMiLz48L3N2Zz4=");
+      const file = e.dataTransfer.files?.[0];
+      if (file) await handleUploadFile(file);
+  };
+
+  const handleUploadFile = async (file: File) => {
+      try {
+        if (!file.type.includes('png')) {
+          return addToast('Solo se permite PNG transparente para la firma', 'error');
+        }
+        const { user: updated } = await uploadSignature(token, file, pin);
+        if (updated.signatureImage) setSignature(updated.signatureImage);
+        addToast('Firma actualizada', 'success');
+      } catch (e: any) {
+        addToast(e.message || 'No se pudo subir la firma', 'error');
+      }
   };
 
   return (
@@ -61,10 +83,21 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onBack }) => {
                             <div className="border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 w-full md:w-1/2 h-40 flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors"
                                 onDragOver={(e) => e.preventDefault()}
                                 onDrop={handleDropSignature}
-                                onClick={() => alert("Abrir selector de archivos...")}
+                                onClick={() => fileInputRef.current?.click()}
                             >
                                 <svg className="w-8 h-8 text-slate-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                                 <span className="text-sm font-medium text-slate-600">Arrastre su firma (PNG)</span>
+                                <input
+                                  type="file"
+                                  ref={fileInputRef}
+                                  className="hidden"
+                                  accept="image/png"
+                                  onChange={(e) => {
+                                    const f = e.target.files?.[0];
+                                    if (f) handleUploadFile(f);
+                                    e.target.value = '';
+                                  }}
+                                />
                             </div>
                             
                             <div className="w-full md:w-1/2">

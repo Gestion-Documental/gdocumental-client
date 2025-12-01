@@ -442,7 +442,7 @@ const App: React.FC = () => {
   }
 
   if (currentView === 'USER_PROFILE') {
-      return <UserProfile user={currentUser} onBack={() => setCurrentView('DASHBOARD')} />;
+      return <UserProfile user={currentUser} token={token || ''} onBack={() => setCurrentView('DASHBOARD')} />;
   }
 
   const renderContent = () => {
