@@ -6,6 +6,7 @@ import { MOCK_CONTACTS } from '../services/mockData';
 import CommentSection from './CommentSection';
 import FileAttachments from './FileAttachments';
 import ContactSelector from './ContactSelector';
+import { sanitizeHtml } from '../utils/sanitize';
 import tinymce from 'tinymce/tinymce';
 import 'tinymce/icons/default';
 import 'tinymce/themes/silver';
@@ -29,6 +30,7 @@ import 'tinymce/plugins/help';
 import 'tinymce/plugins/wordcount';
 import 'tinymce/skins/ui/oxide/skin.min.css';
 import 'tinymce/skins/content/default/content.min.css';
+import { useToast } from './ToastProvider';
 
 declare global {
   interface Window {
@@ -85,6 +87,7 @@ const normalizeAttachments = (doc?: Document | null): Attachment[] => {
 };
 
 const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToDoc, existingDoc, userRole, onCancel, onSave, onDeleteAttachment, apiBaseUrl, forceReadOnly }) => {
+  const { addToast } = useToast();
   // New Series State
   const [series, setSeries] = useState<SeriesType>(existingDoc?.series || 'ADM');
   const [docType, setDocType] = useState<DocumentType>(existingDoc?.type || DocumentType.OUTBOUND);
@@ -143,7 +146,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
           try {
               await onDeleteAttachment(id);
           } catch (e) {
-              alert((e as any)?.message || 'No se pudo eliminar el adjunto');
+              addToast((e as any)?.message || 'No se pudo eliminar el adjunto', 'error');
           }
       }
       setAttachments(prev => prev.filter(a => a.id !== id));
@@ -734,7 +737,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
                                     contentEditable={!isReadOnly}
                                     className="w-full h-full min-h-[600px] outline-none px-[20mm] py-[20mm] font-sans text-[11pt] leading-[1.5] text-slate-800 bg-white"
                                     onInput={(e) => handleManualEdit(e.currentTarget.innerHTML)}
-                                    dangerouslySetInnerHTML={{ __html: content }}
+                                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(content) }}
                                 />
                             ) : (
                                 <textarea 
@@ -751,6 +754,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
                         readOnly={isReadOnly}
                         onDeleteAttachment={handleRemoveAttachment}
                         apiBaseUrl={apiBaseUrl}
+                        onError={(msg) => addToast(msg, 'error')}
                     />
                 </div>
                 <div className="h-20"></div>
@@ -779,7 +783,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
             </div>
             <div className="p-8 bg-slate-50">
               <div className="bg-white shadow-[0_15px_45px_rgba(0,0,0,0.08)] border border-slate-100 max-w-[210mm] mx-auto min-h-[297mm] p-[20mm] text-slate-900 prose prose-slate">
-                <div dangerouslySetInnerHTML={{ __html: previewHtml || '<p><em>No hay contenido para mostrar.</em></p>' }} />
+                <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(previewHtml || '<p><em>No hay contenido para mostrar.</em></p>') }} />
               </div>
             </div>
           </div>

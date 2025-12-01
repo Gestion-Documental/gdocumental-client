@@ -3,6 +3,7 @@ import React, { useRef, useState } from 'react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { Document } from '../types';
+import { sanitizeHtml } from '../utils/sanitize';
 
 interface SignedDocumentViewProps {
   document: Document;
@@ -124,7 +125,7 @@ const SignedDocumentView: React.FC<SignedDocumentViewProps> = ({ document, onClo
                 {/* Content */}
                 <div 
                 className="text-justify text-sm leading-7 whitespace-pre-wrap font-serif min-h-[400px]"
-                dangerouslySetInnerHTML={{ __html: document.content || '' }}
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(document.content) }}
                 />
 
                 {/* ATTACHMENT LIST STAMP (Auto-Injected) */}

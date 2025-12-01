@@ -20,8 +20,10 @@ import DashboardStats from './components/DashboardStats';
 import DossierView from './components/DossierView';
 import ArchiveManager from './components/ArchiveManager';
 import InboundRegistration from './components/InboundRegistration';
+import { useToast } from './components/ToastProvider';
 
 const App: React.FC = () => {
+  const { addToast } = useToast();
   // --- AUTH STATE ---
   const [currentUser, setCurrentUser] = useState<User | null>(null);
 
@@ -141,7 +143,7 @@ const App: React.FC = () => {
 
  const handleSaveDocument = async (data: any) => {
      if (!token) {
-        alert('Necesitas iniciar sesión');
+        addToast('Necesitas iniciar sesión', 'error');
         return;
     }
 
@@ -201,21 +203,21 @@ const App: React.FC = () => {
        if (data.shouldFinalize && docId) {
          updatedDoc = await radicarDocument(token, docId, SignatureMethod.DIGITAL);
          setSignedDocView(updatedDoc);
-       } else if (docId) {
-         updatedDoc = await fetchDocument(token, docId);
-       }
+      } else if (docId) {
+        updatedDoc = await fetchDocument(token, docId);
+      }
 
        if (updatedDoc) {
          setDocuments(docs => {
            const exists = docs.some(d => d.id === updatedDoc!.id);
            return exists ? docs.map(d => d.id === updatedDoc!.id ? updatedDoc! : d) : [updatedDoc!, ...docs];
          });
-       } else {
+      } else {
         fetchDocuments(token, activeProjectId).then(setDocuments).catch(() => {});
       }
     } catch (err: any) {
        if (err.code === 401 || err.code === 403) return handleLogout();
-       alert(err.message || 'No se pudo guardar el documento');
+       addToast(err.message || 'No se pudo guardar el documento', 'error');
     } finally {
       setIsEditorOpen(false);
       setEditorDoc(null);
@@ -231,14 +233,14 @@ const App: React.FC = () => {
         setSignedDocView(updated);
       } catch (err: any) {
         if (err.code === 401 || err.code === 403) return handleLogout();
-        alert(err.message || 'No se pudo radicar');
+        addToast(err.message || 'No se pudo radicar', 'error');
       } finally {
         setFinalizeDoc(null);
       }
   };
 
   const handleSaveInbound = async (data: any) => {
-      if (!token) return alert('Necesitas iniciar sesión');
+      if (!token) return addToast('Necesitas iniciar sesión', 'error');
       try {
         const defaultDeadline = new Date(Date.now() + 15 * 86400000).toISOString();
         const payload = {
@@ -258,9 +260,10 @@ const App: React.FC = () => {
         setDocuments([refreshed, ...documents]);
         setIsInboundRegistering(false);
         setDossierDoc(refreshed);
+        addToast('Entrada radicada correctamente', 'success');
       } catch (error: any) {
         if (error.code === 401 || error.code === 403) return handleLogout();
-        alert(error.message || 'No se pudo registrar la entrada');
+        addToast(error.message || 'No se pudo registrar la entrada', 'error');
       }
   };
   
@@ -274,7 +277,7 @@ const App: React.FC = () => {
                setDossierDoc(updated);
           }
         })
-        .catch(err => alert(err.message || 'No se pudo registrar la entrega'));
+        .catch(err => addToast(err.message || 'No se pudo registrar la entrega', 'error'));
   };
 
   const handleAssignLocation = (docId: string, locationId: string) => {
@@ -308,9 +311,10 @@ const App: React.FC = () => {
           if (dossierDoc && dossierDoc.id === docId) {
               setDossierDoc(updated);
           }
+          addToast('Documento anulado con éxito', 'success');
        } catch (err: any) {
          if (err.code === 401 || err.code === 403) return handleLogout();
-         alert(err.message || 'No se pudo anular el documento');
+         addToast(err.message || 'No se pudo anular el documento', 'error');
         }
       })();
   };
@@ -332,7 +336,7 @@ const App: React.FC = () => {
       });
       setDocuments(updatedDocs);
       setShowTransferReady(false);
-      alert(`Transferencia Primaria exitosa. ${docIds.length} expedientes movidos al Archivo Central.\n\nSe ha generado el Acta de Transferencia en PDF (Simulado).`);
+      addToast(`Transferencia exitosa: ${docIds.length} expedientes movidos al Archivo Central.`, 'success');
   };
 
   const handleDispatchUpdate = (docId: string, payload: { method: 'NEXUS_MAIL' | 'EXTERNAL_CLIENT'; dispatchDate: string; emailTrackingStatus: 'SENT' | 'OPENED' | 'CLICKED'; dispatchUser?: string; trackingId?: string; }) => {
@@ -367,7 +371,7 @@ const App: React.FC = () => {
       if (dossierDoc && dossierDoc.id === docId) setDossierDoc(updated);
     } catch (err: any) {
       if (err.code === 401 || err.code === 403) return handleLogout();
-      alert(err.message || 'No se pudo eliminar el adjunto');
+      addToast(err.message || 'No se pudo eliminar el adjunto', 'error');
     }
   };
 
@@ -386,7 +390,7 @@ const App: React.FC = () => {
       link.click();
       window.URL.revokeObjectURL(url);
     } catch (err: any) {
-      alert(err.message || 'No se pudo exportar el Excel');
+      addToast(err.message || 'No se pudo exportar el Excel', 'error');
     }
   };
 
@@ -399,7 +403,7 @@ const App: React.FC = () => {
       if (dossierDoc && dossierDoc.id === docId) setDossierDoc(refreshed);
     } catch (err: any) {
       if (err.code === 401 || err.code === 403) return handleLogout();
-      alert(err.message || 'No se pudo actualizar el estado');
+      addToast(err.message || 'No se pudo actualizar el estado', 'error');
     }
   };
 

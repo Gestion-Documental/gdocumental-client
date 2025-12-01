@@ -7,6 +7,7 @@ import DeliveryRegistrationModal from './DeliveryRegistrationModal';
 import ArchiveAssignmentModal from './ArchiveAssignmentModal'; 
 import { getArchivePath } from '../services/mockData'; 
 import EmailDispatchModal from './EmailDispatchModal';
+import { sanitizeHtml } from '../utils/sanitize';
 
 interface DossierViewProps {
   document: Document;
@@ -186,7 +187,7 @@ const DossierView: React.FC<DossierViewProps> = ({ document, userRole, currentUs
 
                 <div 
                   className="text-justify text-sm leading-7 whitespace-pre-wrap font-serif min-h-[400px]"
-                  dangerouslySetInnerHTML={{ __html: document.content || '' }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(document.content) }}
                 />
 
                 {attachments.length > 0 && (

@@ -11,7 +11,9 @@
   "dependencies": {
     "@fontsource/inter": "^5.1.1",
     "@fontsource/montserrat": "^5.2.8",
+    "@types/dompurify": "^3.0.5",
     "crypto": "^1.0.1",
+    "dompurify": "^3.3.0",
     "express": "^5.1.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^2.5.1",
