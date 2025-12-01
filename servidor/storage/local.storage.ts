@@ -3,6 +3,7 @@ import path from 'path';
 import { IFileStorage, StoredFile } from './IFileStorage';
 
 const BASE_DIR = process.env.LOCAL_STORAGE_PATH || path.join(process.cwd(), 'uploads');
+const PUBLIC_PREFIX = '/uploads';
 
 export class LocalFileStorage implements IFileStorage {
   async save(params: { buffer: Buffer; filename: string; contentType: string }): Promise<StoredFile> {
@@ -15,7 +16,7 @@ export class LocalFileStorage implements IFileStorage {
 
     return {
       key: safeName,
-      url: filePath,
+      url: `${PUBLIC_PREFIX}/${safeName}`,
       size: params.buffer.length,
       contentType: params.contentType
     };

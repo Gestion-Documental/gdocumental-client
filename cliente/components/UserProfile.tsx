@@ -42,7 +42,11 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, token, onBack }) => {
           return addToast('Solo se permite PNG transparente para la firma', 'error');
         }
         const { user: updated } = await uploadSignature(token, file, pin);
-        if (updated.signatureImage) setSignature(updated.signatureImage);
+        if (updated.signatureImage) {
+          setSignature(updated.signatureImage);
+        } else {
+          setSignature(URL.createObjectURL(file));
+        }
         addToast('Firma actualizada', 'success');
       } catch (e: any) {
         addToast(e.message || 'No se pudo subir la firma', 'error');
@@ -104,7 +108,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, token, onBack }) => {
                                 <p className="text-xs font-bold text-slate-400 uppercase mb-2">Vista Previa Actual</p>
                                 <div className="border border-slate-200 rounded-xl p-4 bg-white h-40 flex items-center justify-center">
                                     {signature ? (
-                                        <img src={signature} alt="Signature" className="max-h-24" />
+                                        <img src={signature} alt="Signature" className="max-h-24 object-contain" />
                                     ) : (
                                         <span className="text-slate-400 italic text-sm">No hay firma configurada</span>
                                     )}

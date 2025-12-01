@@ -8,6 +8,7 @@ import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import projectRouter from './project.controller';
 import userRouter from './user.controller';
+import path from 'path';
 
 dotenv.config();
 
@@ -17,6 +18,7 @@ const prisma = new PrismaClient();
 
 app.use(cors());
 app.use(express.json());
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 app.use('/auth', authRouter);
 app.use('/projects', authMiddleware, projectRouter);
