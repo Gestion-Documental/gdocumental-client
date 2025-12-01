@@ -91,6 +91,7 @@ model Project {
   code         String     @unique
   name         String
   seriesConfig Json       // JSON config for independent counters per series (ADM, TEC)
+  trd          Json?      // Simple TRD catalog per project (array of {code, name, retentionGestion, retentionCentral})
   startDate    DateTime?
   initialEndDate DateTime?
   contractId   String?

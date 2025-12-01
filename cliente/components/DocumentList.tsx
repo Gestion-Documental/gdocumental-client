@@ -555,12 +555,6 @@ const DocumentList: React.FC<DocumentListProps> = ({
                                     </button>
                                 )}
 
-                                {doc.status === DocumentStatus.PENDING_SCAN && (
-                                    <button className="text-xs bg-orange-100 hover:bg-orange-200 text-orange-800 px-3 py-1.5 rounded font-medium flex items-center gap-1">
-                                        Upload
-                                    </button>
-                                )}
-
                                 {/* Solo Director puede radicar/finalizar; ocultar botones si no procede */}
                                 {userRole === 'DIRECTOR' && doc.status === DocumentStatus.DRAFT && (
                                     <button

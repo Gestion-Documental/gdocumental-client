@@ -30,6 +30,7 @@ const DossierView: React.FC<DossierViewProps> = ({ document, userRole, currentUs
   const [showEmailModal, setShowEmailModal] = useState(false);
   
   const attachments = document.attachments && document.attachments.length > 0 ? document.attachments : (document.metadata?.attachments || []);
+  const allowDeleteAttachments = !isVoid && (document.status === DocumentStatus.DRAFT || document.status === DocumentStatus.PENDING_APPROVAL) && userRole === 'DIRECTOR';
 
   const handleDownloadZip = () => {
     setIsZipping(true);
@@ -200,7 +201,7 @@ const DossierView: React.FC<DossierViewProps> = ({ document, userRole, currentUs
                                         {att.name || (att as any).filename || 'Adjunto'}
                                       </a>
                                       {att.size && <span className="opacity-50">({att.size})</span>}
-                                      {onDeleteAttachment && (
+                                      {onDeleteAttachment && allowDeleteAttachments && (
                                         <button
                                           onClick={() => onDeleteAttachment(att.id)}
                                           className="text-red-500 hover:text-red-700 ml-2"

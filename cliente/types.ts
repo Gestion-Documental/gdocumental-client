@@ -88,6 +88,7 @@ export interface TRDEntry {
   retentionGestion: number;
   retentionCentral: number;
   disposition: string;
+  responseDays?: number; // opcional para SLA de respuesta
 }
 
 export interface Comment {
@@ -117,6 +118,7 @@ export interface Project {
   prefix: string; 
   type: ProjectType;
   isActive: boolean;
+  trd?: TRDEntry[];
 }
 
 export interface Document {

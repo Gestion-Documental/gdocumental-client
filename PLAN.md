@@ -7,9 +7,9 @@
   - Adjuntos: `/documents/:id/attachments` (upload/list/delete/download).
   - Entregas (delivery), void/anulación con motivo, cambios de estado (pendiente → aprobado → radicado básicos).
 - [x] Auth real: eliminar auto-provision, seeds de usuarios/roles, refresh/expiración configurable.
-- [ ] Roles/permisos: middleware por rol y validaciones de estado (no radicar si ya está radicado, etc.).
-- [ ] Proyectos: CRUD, prefijos/series configurables; endpoint TRD si aplica.
-- [ ] Fechas/plazos: calcular/sincronizar `requiresResponse`, `deadline`, `isCompleted`.
+- [x] Roles/permisos: middleware por rol y validaciones de estado (no radicar si ya está radicado, etc.).
+- [x] Proyectos: CRUD, prefijos/series configurables; endpoint TRD si aplica.
+- [x] Fechas/plazos: calcular/sincronizar `requiresResponse`, `deadline`, `isCompleted`.
 
 ## 2) Storage y archivos
 - [x] Consolidar storage: `STORAGE_DRIVER=local|s3`; validar config al boot.

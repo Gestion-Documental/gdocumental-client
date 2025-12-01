@@ -11,6 +11,26 @@ import fs from 'fs';
 const prisma = new PrismaClient();
 const router = Router();
 
+function computeDeadlineFromTrd(metadata: any, projectTrd: any[] | null | undefined): string | null {
+  const trdCode = metadata?.trdCode;
+  const dateBase = metadata?.documentDate ? new Date(metadata.documentDate) : new Date();
+  if (trdCode && Array.isArray(projectTrd)) {
+    const entry = projectTrd.find((t: any) => (t.code || '').toLowerCase() === trdCode.toLowerCase());
+    const days = entry?.responseDays;
+    if (typeof days === 'number' && days > 0) {
+      const final = new Date(dateBase.getTime() + days * 86400000);
+      return final.toISOString();
+    }
+  }
+  // fallback: solo si se explicitó requiresResponse
+  if (metadata?.requiresResponse) {
+    const final = new Date(dateBase.getTime() + 15 * 86400000);
+    const final = new Date(dateBase.getTime() + days * 86400000);
+    return final.toISOString();
+  }
+  return null;
+}
+
 // List documents for a project (basic)
 router.get(
   '/',
@@ -151,12 +171,30 @@ router.put(
         return res.status(403).json({ error: 'Solo directores pueden editar documentos no borrador' });
       }
 
+      // Validar TRD contra proyecto
+      if (metadata?.trdCode) {
+        const project = await prisma.project.findUnique({ where: { id: doc.projectId }, select: { trd: true } });
+        const trdList = project?.trd || [];
+        const found = trdList.find((t: any) => (t.code || '').toLowerCase() === (metadata.trdCode || '').toLowerCase());
+        if (!found) {
+          return res.status(400).json({ error: 'TRD no válida para el proyecto' });
+        }
+      }
+
+      let computedDeadline: string | null = metadata?.deadline || null;
+      if (!computedDeadline && metadata?.requiresResponse) {
+        const project = await prisma.project.findUnique({ where: { id: doc.projectId }, select: { trd: true } });
+        computedDeadline = computeDeadlineFromTrd(metadata, project?.trd);
+      }
+
       const updated = await prisma.document.update({
         where: { id },
         data: {
           title: title ?? doc.title,
           content: content ?? doc.content,
-          metadata: metadata ? { set: { ...(doc.metadata as any), ...metadata } } : undefined,
+          metadata: metadata
+            ? { set: { ...(doc.metadata as any), ...metadata, deadline: computedDeadline ?? null } }
+            : undefined,
           series: series ?? doc.series,
           retentionDate: retentionDate ?? doc.retentionDate,
           isPhysicalOriginal: isPhysicalOriginal ?? doc.isPhysicalOriginal,
@@ -393,9 +431,20 @@ router.post(
       const { projectId, series, title, metadata, requiresResponse, deadline, receptionMedium } = req.body;
       const userId = req.user!.id;
 
+      // Validar TRD contra proyecto
+      if (metadata?.trdCode) {
+        const project = await prisma.project.findUnique({ where: { id: projectId }, select: { trd: true } });
+        const trdList = project?.trd || [];
+        const found = trdList.find((t: any) => (t.code || '').toLowerCase() === (metadata.trdCode || '').toLowerCase());
+        if (!found) {
+          return res.status(400).json({ error: 'TRD no válida para el proyecto' });
+        }
+      }
+
       // Generate radicado
       const radicadoCode = await generateRadicado(projectId, series as any, 'IN');
-      const finalDeadline = deadline || metadata?.documentDate || new Date(Date.now() + 15 * 86400000).toISOString();
+      const project = await prisma.project.findUnique({ where: { id: projectId }, select: { trd: true } });
+      const finalDeadline = deadline || computeDeadlineFromTrd(metadata, project?.trd);
 
       const doc = await prisma.document.create({
         data: {
@@ -551,6 +600,12 @@ router.post(
         finalStatus = DocumentStatus.PENDING_SCAN;
       }
 
+      let finalDeadline = (doc.metadata as any)?.deadline || null;
+      if (!finalDeadline && (doc.metadata as any)?.requiresResponse) {
+        const project = await prisma.project.findUnique({ where: { id: doc.projectId }, select: { trd: true } });
+        finalDeadline = computeDeadlineFromTrd(doc.metadata, project?.trd);
+      }
+
       const updated = await prisma.document.update({
         where: { id },
         data: {
@@ -561,6 +616,7 @@ router.post(
               ...(doc.metadata as any),
               signatureMethod: signatureMethod || 'DIGITAL',
               radicadoAt: new Date().toISOString(),
+              deadline: finalDeadline ?? null,
             },
           },
           updatedAt: new Date(),

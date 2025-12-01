@@ -7,7 +7,7 @@ import {
 import { 
   getDocumentThread 
 } from './services/mockData';
-import { login as apiLogin, fetchDocuments, createInboundDocument, radicarDocument, fetchProjects, createDocument, uploadAttachment, fetchDocument, deleteAttachment, updateDelivery, updateDocument, updateStatus, API_URL } from './services/api';
+import { login as apiLogin, fetchDocuments, createInboundDocument, radicarDocument, fetchProjects, createDocument, uploadAttachment, fetchDocument, deleteAttachment, updateDelivery, updateDocument, updateStatus, API_URL, fetchProjectTrd } from './services/api';
 
 import LoginPage from './components/LoginPage';
 import AdminDashboard from './components/AdminDashboard';
@@ -63,10 +63,20 @@ const App: React.FC = () => {
   React.useEffect(() => {
     if (!token) return;
     fetchProjects(token)
-      .then((p) => {
-        setProjects(p);
-        if (p.length > 0) {
-          setActiveProjectId(p[0].id);
+      .then(async (p) => {
+        const withTrd = await Promise.all(
+          p.map(async (proj) => {
+            try {
+              const trd = await fetchProjectTrd(token, proj.id);
+              return { ...proj, trd };
+            } catch {
+              return proj;
+            }
+          })
+        );
+        setProjects(withTrd);
+        if (withTrd.length > 0) {
+          setActiveProjectId(withTrd[0].id);
         }
       })
       .catch(() => {});

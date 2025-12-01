@@ -76,6 +76,15 @@ export async function fetchProjects(token: string) {
   return (data as any[]).map(mapProject);
 }
 
+export async function fetchProjectTrd(token: string, projectId: string) {
+  const res = await fetch(`${API_URL}/projects/${projectId}/trd`, {
+    headers: authHeader(token),
+  });
+  await ensureAuth(res as any);
+  if (!res.ok) throw new Error('No se pudo obtener TRD');
+  return res.json();
+}
+
 export async function fetchDocument(token: string, id: string) {
   const res = await fetch(`${API_URL}/documents/${id}`, { headers: authHeader(token) });
   await ensureAuth(res as any);

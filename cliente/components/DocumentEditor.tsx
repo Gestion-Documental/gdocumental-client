@@ -1,8 +1,8 @@
 
 
 import React, { useState, useEffect, useRef } from 'react';
-import { DocumentType, DocumentTemplate, Project, Document, DocumentStatus, Comment, Attachment, SeriesType, UserRole } from '../types';
-import { MOCK_CONTACTS, MOCK_TRD_SERIES } from '../services/mockData';
+import { DocumentType, DocumentTemplate, Project, Document, DocumentStatus, Comment, Attachment, SeriesType, UserRole, TRDEntry } from '../types';
+import { MOCK_CONTACTS } from '../services/mockData';
 import CommentSection from './CommentSection';
 import FileAttachments from './FileAttachments';
 import ContactSelector from './ContactSelector';
@@ -122,7 +122,11 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
   const [recipientAddress, setRecipientAddress] = useState(existingDoc?.metadata?.recipientAddress || '');
 
   const currentStatus = existingDoc?.status || DocumentStatus.DRAFT;
-  const isFinalized = currentStatus === DocumentStatus.RADICADO || currentStatus === DocumentStatus.ARCHIVED;
+  const isFinalized =
+    currentStatus === DocumentStatus.RADICADO ||
+    currentStatus === DocumentStatus.ARCHIVED ||
+    currentStatus === DocumentStatus.VOID ||
+    currentStatus === DocumentStatus.PENDING_SCAN;
   
   const isDirectorReviewing = userRole === 'DIRECTOR' && currentStatus === DocumentStatus.PENDING_APPROVAL;
   const isDirectorDrafting = userRole === 'DIRECTOR' && currentStatus === DocumentStatus.DRAFT;
@@ -145,10 +149,10 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
   };
 
   // Filter TRD by selected Series
-  const trdOptions = MOCK_TRD_SERIES.filter(trd => {
-      // Simple heuristic for mock: 100 series = ADM, 200 series = TEC
-      if (series === 'ADM') return trd.code.startsWith('100');
-      if (series === 'TEC') return trd.code.startsWith('200');
+  const trdOptions: TRDEntry[] = (activeProject?.trd || []).filter(trd => {
+      const code = trd.code?.toUpperCase() || '';
+      if (series === 'ADM') return code.includes('ADM') || code.startsWith('A');
+      if (series === 'TEC') return code.includes('TEC') || code.startsWith('T');
       return true;
   });
 
@@ -456,6 +460,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
         comments: options.customComments || comments,
         attachments,
         ccList, // Save Copies
+        documentDate: new Date().toISOString(),
+        requiresResponse: !!trdCode || docType === DocumentType.INBOUND,
       }
     });
   };
@@ -600,7 +606,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
                                 <option value="">-- Seleccionar Serie Documental --</option>
                                 {trdOptions.map(trd => (
                                     <option key={trd.code} value={trd.code}>
-                                        {trd.code} - {trd.subseriesName} ({trd.retentionGestion} Años)
+                                        {trd.code} - {trd.subseriesName} (Resp: {trd.responseDays ?? 15}d)
                                     </option>
                                 ))}
                              </select>
@@ -621,10 +627,17 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
                     </div>
 
                     <div className="border-t border-slate-100 pt-4">
-                        <h3 className="text-xs font-bold text-slate-800 uppercase mb-4 flex items-center gap-2">
-                            Datos del Destinatario
-                        </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <h3 className="text-xs font-bold text-slate-800 uppercase mb-4 flex items-center gap-2">
+            Datos del Destinatario
+        </h3>
+        {trdCode && (
+          <div className="mb-2 text-xs text-slate-500">
+            <span className="inline-flex items-center gap-2 px-2 py-1 rounded-full bg-blue-50 border border-blue-100 text-blue-700">
+              TRD: {trdCode} · Plazo sugerido: {trdOptions.find(t => t.code === trdCode)?.responseDays ?? 15} días
+            </span>
+          </div>
+        )}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             
                             {/* SMART COMBOBOX / AUTOCOMPLETE */}
                             <div className="relative col-span-1 md:col-span-2">
