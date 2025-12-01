@@ -23,17 +23,24 @@ import DashboardStats from './components/DashboardStats';
 import DossierView from './components/DossierView';
 import ArchiveManager from './components/ArchiveManager';
 import InboundRegistration from './components/InboundRegistration';
+import Notification from './src/components/Notification';
+import Loader from './src/components/Loader';
+import { useAuth } from './src/hooks/useAuth';
+import { useDocuments } from './src/hooks/useDocuments';
 
 const App: React.FC = () => {
+  // --- NOTIFICATION STATE ---
+  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [loading, setLoading] = useState(false);
+
   // --- AUTH STATE ---
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const { currentUser, token, login, logout } = useAuth();
 
   // --- APP STATE ---
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string>('');
-  const [documents, setDocuments] = useState<Document[]>([]);
+  const { documents, getDocuments } = useDocuments(token, activeProjectId);
   const [currentView, setCurrentView] = useState<ViewState>('LOGIN');
-  const [token, setToken] = useState<string | null>(null);
 
   // Editor State
   const [isEditorOpen, setIsEditorOpen] = useState(false);
@@ -55,13 +62,14 @@ const App: React.FC = () => {
 
   const activeProject = projects.find(p => p.id === activeProjectId) || projects[0];
 
-  const projectDocuments = useMemo(() => 
+  const projectDocuments = useMemo(() =>
     documents.filter(d => d.projectId === activeProjectId),
   [documents, activeProjectId]);
 
   // Fetch projects on login
   React.useEffect(() => {
     if (!token) return;
+    setLoading(true);
     fetchProjects(token)
       .then(async (p) => {
         const withTrd = await Promise.all(
@@ -79,27 +87,24 @@ const App: React.FC = () => {
           setActiveProjectId(withTrd[0].id);
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [token]);
 
   // Fetch documents when login/project changes
   React.useEffect(() => {
-    if (!token || !activeProjectId) return;
-    fetchDocuments(token, activeProjectId)
-      .then(setDocuments)
-      .catch(() => {});
+    getDocuments();
   }, [token, activeProjectId]);
 
   // --- AUTH HANDLERS ---
   const handleLogin = (user: User, authToken: string) => {
-      setCurrentUser(user);
-      setToken(authToken);
+      login(user, authToken);
       setCurrentView(user.role === 'SUPER_ADMIN' ? 'ADMIN_DASHBOARD' : 'DASHBOARD');
+      setNotification({ message: 'Login successful!', type: 'success' });
   };
 
   const handleLogout = () => {
-      setCurrentUser(null);
-      setToken(null);
+      logout();
       setDocuments([]);
       setCurrentView('LOGIN');
   };
@@ -108,7 +113,7 @@ const App: React.FC = () => {
 
  const handleSaveDocument = async (data: any) => {
      if (!token) {
-        alert('Necesitas iniciar sesión');
+        setNotification({ message: 'You need to be logged in', type: 'error' });
         return;
     }
 
@@ -178,12 +183,13 @@ const App: React.FC = () => {
            return exists ? docs.map(d => d.id === updatedDoc!.id ? updatedDoc! : d) : [updatedDoc!, ...docs];
          });
        } else {
-        fetchDocuments(token, activeProjectId).then(setDocuments).catch(() => {});
+        getDocuments();
       }
     } catch (err: any) {
        if (err.code === 401 || err.code === 403) return handleLogout();
-       alert(err.message || 'No se pudo guardar el documento');
+       setNotification({ message: err.message || 'Failed to save document', type: 'error' });
     } finally {
+      setLoading(false);
       setIsEditorOpen(false);
       setEditorDoc(null);
       setReplyToDoc(null);
@@ -192,20 +198,27 @@ const App: React.FC = () => {
 
   const handleSignatureConfirm = async (method: SignatureMethod, _signatureImage?: string) => {
       if (!finalizeDoc || !token) return;
+      setLoading(true);
       try {
         const updated = await radicarDocument(token, finalizeDoc.id, method);
         setDocuments(docs => docs.map(d => d.id === updated.id ? updated : d));
         setSignedDocView(updated);
+        setNotification({ message: 'Document radicated successfully!', type: 'success' });
       } catch (err: any) {
         if (err.code === 401 || err.code === 403) return handleLogout();
-        alert(err.message || 'No se pudo radicar');
+        setNotification({ message: err.message || 'Failed to radicate document', type: 'error' });
       } finally {
+        setLoading(false);
         setFinalizeDoc(null);
       }
   };
 
   const handleSaveInbound = async (data: any) => {
-      if (!token) return alert('Necesitas iniciar sesión');
+      if (!token) {
+        setNotification({ message: 'You need to be logged in', type: 'error' });
+        return;
+      }
+      setLoading(true);
       try {
         const defaultDeadline = new Date(Date.now() + 15 * 86400000).toISOString();
         const payload = {
@@ -225,12 +238,15 @@ const App: React.FC = () => {
         setDocuments([refreshed, ...documents]);
         setIsInboundRegistering(false);
         setDossierDoc(refreshed);
+        setNotification({ message: 'Inbound document registered successfully!', type: 'success' });
       } catch (error: any) {
         if (error.code === 401 || error.code === 403) return handleLogout();
-        alert(error.message || 'No se pudo registrar la entrada');
+        setNotification({ message: error.message || 'Failed to register inbound document', type: 'error' });
+      } finally {
+        setLoading(false);
       }
   };
-  
+
   const handleRegisterDelivery = (docId: string, data: { receivedBy: string; receivedAt: string; proof: string }) => {
       if (!token) return;
       updateDelivery(token, docId, data)
@@ -241,7 +257,7 @@ const App: React.FC = () => {
                setDossierDoc(updated);
           }
         })
-        .catch(err => alert(err.message || 'No se pudo registrar la entrega'));
+        .catch(err => setNotification({ message: err.message || 'Failed to register delivery', type: 'error' }));
   };
 
   const handleAssignLocation = (docId: string, locationId: string) => {
@@ -277,7 +293,7 @@ const App: React.FC = () => {
           }
        } catch (err: any) {
          if (err.code === 401 || err.code === 403) return handleLogout();
-         alert(err.message || 'No se pudo anular el documento');
+         setNotification({ message: err.message || 'Failed to void document', type: 'error' });
         }
       })();
   };
@@ -286,8 +302,8 @@ const App: React.FC = () => {
       const updatedDocs = documents.map(d => {
           if (docIds.includes(d.id)) {
               // Simulate Transfer to Central Archive
-              return { 
-                  ...d, 
+              return {
+                  ...d,
                   physicalLocationId: 'loc-central', // Central Archive ID
                   metadata: {
                       ...d.metadata,
@@ -299,7 +315,7 @@ const App: React.FC = () => {
       });
       setDocuments(updatedDocs);
       setShowTransferReady(false);
-      alert(`Transferencia Primaria exitosa. ${docIds.length} expedientes movidos al Archivo Central.\n\nSe ha generado el Acta de Transferencia en PDF (Simulado).`);
+      setNotification({ message: `Primary Transfer successful. ${docIds.length} files moved to the Central Archive.`, type: 'success' });
   };
 
   const handleDispatchUpdate = (docId: string, payload: { method: 'NEXUS_MAIL' | 'EXTERNAL_CLIENT'; dispatchDate: string; emailTrackingStatus: 'SENT' | 'OPENED' | 'CLICKED'; dispatchUser?: string; trackingId?: string; }) => {
@@ -332,9 +348,10 @@ const App: React.FC = () => {
       const updated = await fetchDocument(token, docId);
       setDocuments(docs => docs.map(d => d.id === updated.id ? updated : d));
       if (dossierDoc && dossierDoc.id === docId) setDossierDoc(updated);
+      setNotification({ message: 'Attachment deleted successfully!', type: 'success' });
     } catch (err: any) {
       if (err.code === 401 || err.code === 403) return handleLogout();
-      alert(err.message || 'No se pudo eliminar el adjunto');
+      setNotification({ message: err.message || 'Failed to delete attachment', type: 'error' });
     }
   };
 
@@ -353,7 +370,7 @@ const App: React.FC = () => {
       link.click();
       window.URL.revokeObjectURL(url);
     } catch (err: any) {
-      alert(err.message || 'No se pudo exportar el Excel');
+      setNotification({ message: err.message || 'Failed to export Excel', type: 'error' });
     }
   };
 
@@ -364,9 +381,10 @@ const App: React.FC = () => {
       const refreshed = await fetchDocument(token, docId);
       setDocuments(docs => docs.map(d => d.id === refreshed.id ? refreshed : d));
       if (dossierDoc && dossierDoc.id === docId) setDossierDoc(refreshed);
+      setNotification({ message: 'Status updated successfully!', type: 'success' });
     } catch (err: any) {
       if (err.code === 401 || err.code === 403) return handleLogout();
-      alert(err.message || 'No se pudo actualizar el estado');
+      setNotification({ message: err.message || 'Failed to update status', type: 'error' });
     }
   };
 
@@ -376,18 +394,108 @@ const App: React.FC = () => {
       return <LoginPage onLogin={handleLogin} />;
   }
 
-  if (currentView === 'ADMIN_DASHBOARD' && currentUser.role === 'SUPER_ADMIN') {
-      return <AdminDashboard onLogout={handleLogout} />;
-  }
+  const MainContent = () => (
+    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 min-h-screen">
+      <div className="flex flex-col gap-6 pb-12">
+           <div className="flex-1 flex flex-col">
+               <div className="flex flex-col gap-3 mb-6">
+                 <div className="flex flex-col sm:flex-row gap-2 justify-start">
+                   <button
+                      onClick={() => {
+                          setEditorDoc(null);
+                          setReplyToDoc(null);
+                          setIsEditorOpen(true);
+                      }}
+                      disabled={!activeProject}
+                      className={`flex items-center gap-2 px-5 py-3 min-w-[180px] max-w-[200px] justify-center rounded-lg shadow-md transition-all font-semibold text-sm ${activeProject ? 'bg-blue-600 hover:bg-blue-700 text-white border border-blue-700/40' : 'bg-slate-100 text-slate-500 border border-slate-200 cursor-not-allowed'}`}
+                   >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                      Nuevo Documento
+                   </button>
+                   <button
+                      onClick={() => setIsInboundRegistering(true)}
+                      disabled={!activeProject}
+                      className={`flex items-center gap-2 px-5 py-3 min-w-[180px] max-w-[200px] justify-center rounded-lg shadow-md transition-all font-semibold text-sm ${activeProject ? 'bg-orange-500 hover:bg-orange-600 text-white border border-orange-600/40' : 'bg-slate-100 text-slate-500 border border-slate-200 cursor-not-allowed'}`}
+                   >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                      Radicar Entrada
+                   </button>
+                 </div>
+               </div>
 
-  if (currentView === 'USER_PROFILE') {
-      return <UserProfile user={currentUser} onBack={() => setCurrentView('DASHBOARD')} />;
-  }
+               <DashboardStats
+                  documents={projectDocuments}
+                  onShowTransfers={() => setShowTransferReady(true)}
+                  onExportClientCsv={handleExportClientCsv}
+               />
+
+               <AlertBanner
+                  documents={projectDocuments}
+                  onReviewAll={() => {
+                      setShowTransferReady(false);
+                      setCurrentView('DASHBOARD');
+                      setShowAttentionList(true);
+                      setTimeout(() => {
+                        const anchor = document.getElementById('document-list-anchor');
+                        anchor?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }, 0);
+                  }}
+               />
+
+               <DocumentList
+                  documents={projectDocuments}
+                  userRole={currentUser.role === 'SUPER_ADMIN' ? 'DIRECTOR' : currentUser.role as any}
+                  attentionFilter={showAttentionList}
+                  onClearAttentionFilter={() => setShowAttentionList(false)}
+                  isTransferView={showTransferReady}
+                  onCloseTransferView={() => setShowTransferReady(false)}
+                  onTransferBatch={handleTransferBatch}
+                  onOpenFinalizeModal={(doc) => setFinalizeDoc(doc)}
+                  onViewThread={(doc) => setThreadDoc(doc)}
+                  onReply={(doc) => {
+                      setReplyToDoc(doc);
+                      setEditorDoc(null);
+                      setIsEditorOpen(true);
+                  }}
+                  onEdit={async (doc) => {
+                      if (!token) return;
+                      try {
+                        const fullDoc = await fetchDocument(token, doc.id);
+                        setEditorDoc(fullDoc);
+                      } catch {
+                        setEditorDoc(doc);
+                      }
+                      setReplyToDoc(null);
+                      setIsEditorOpen(true);
+                  }}
+                  onViewDossier={async (doc) => {
+                      if (!token) return;
+                      try {
+                        const fullDoc = await fetchDocument(token, doc.id);
+                        setDossierDoc(fullDoc);
+                      } catch {
+                        setDossierDoc(doc);
+                      }
+                  }}
+                  onVoid={(doc) => handleVoidDocument(doc.id, window.prompt("⚠️ Motivo de la anulación (Obligatorio ISO 9001):") || "")}
+               />
+           </div>
+      </div>
+    </main>
+  );
 
   const renderContent = () => {
+    if (currentView === 'ADMIN_DASHBOARD' && currentUser && currentUser.role === 'SUPER_ADMIN') {
+        return <AdminDashboard onLogout={handleLogout} />;
+    }
+
+    if (currentView === 'USER_PROFILE' && currentUser) {
+        return <UserProfile user={currentUser} onBack={() => setCurrentView('DASHBOARD')} />;
+    }
+
     if (isInboundRegistering) {
         return (
-            <InboundRegistration 
+            <InboundRegistration
                 activeProject={activeProject}
                 onCancel={() => setIsInboundRegistering(false)}
                 onSave={handleSaveInbound}
@@ -404,10 +512,10 @@ const App: React.FC = () => {
     }
 
     if (dossierDoc) {
-        return <DossierView 
-            document={dossierDoc} 
+        return <DossierView
+            document={dossierDoc}
             userRole={currentUser.role === 'SUPER_ADMIN' ? 'DIRECTOR' : currentUser.role as any}
-            onClose={() => setDossierDoc(null)} 
+            onClose={() => setDossierDoc(null)}
             onRegisterDelivery={handleRegisterDelivery}
             onAssignLocation={handleAssignLocation}
             onVoidDocument={handleVoidDocument}
@@ -421,7 +529,7 @@ const App: React.FC = () => {
 
     if (isEditorOpen) {
         return (
-            <DocumentEditor 
+            <DocumentEditor
                 activeProject={activeProject}
                 replyToDoc={replyToDoc}
                 existingDoc={editorDoc}
@@ -438,98 +546,20 @@ const App: React.FC = () => {
         );
     }
     
-    return (
-        <div className="flex flex-col gap-6 pb-12">
-             <div className="flex-1 flex flex-col">
-                 <div className="flex flex-col gap-3 mb-6">
-                   <div className="flex flex-col sm:flex-row gap-2 justify-start">
-                     <button 
-                        onClick={() => {
-                            setEditorDoc(null);
-                            setReplyToDoc(null);
-                            setIsEditorOpen(true);
-                        }}
-                        disabled={!activeProject}
-                        className={`flex items-center gap-2 px-5 py-3 min-w-[180px] max-w-[200px] justify-center rounded-lg shadow-md transition-all font-semibold text-sm ${activeProject ? 'bg-blue-600 hover:bg-blue-700 text-white border border-blue-700/40' : 'bg-slate-100 text-slate-500 border border-slate-200 cursor-not-allowed'}`}
-                     >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                        Nuevo Documento
-                     </button>
-                     <button 
-                        onClick={() => setIsInboundRegistering(true)}
-                        disabled={!activeProject}
-                        className={`flex items-center gap-2 px-5 py-3 min-w-[180px] max-w-[200px] justify-center rounded-lg shadow-md transition-all font-semibold text-sm ${activeProject ? 'bg-orange-500 hover:bg-orange-600 text-white border border-orange-600/40' : 'bg-slate-100 text-slate-500 border border-slate-200 cursor-not-allowed'}`}
-                     >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                        Radicar Entrada
-                     </button>
-                   </div>
-                 </div>
-
-                 <DashboardStats 
-                    documents={projectDocuments} 
-                    onShowTransfers={() => setShowTransferReady(true)}
-                    onExportClientCsv={handleExportClientCsv}
-                 />
-                 
-                 <AlertBanner 
-                    documents={projectDocuments} 
-                    onReviewAll={() => {
-                        setShowTransferReady(false);
-                        setCurrentView('DASHBOARD');
-                        setShowAttentionList(true);
-                        setTimeout(() => {
-                          const anchor = document.getElementById('document-list-anchor');
-                          anchor?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }, 0);
-                    }}
-                 />
-
-                 <DocumentList 
-                    documents={projectDocuments}
-                    userRole={currentUser.role === 'SUPER_ADMIN' ? 'DIRECTOR' : currentUser.role as any}
-                    attentionFilter={showAttentionList}
-                    onClearAttentionFilter={() => setShowAttentionList(false)}
-                    isTransferView={showTransferReady}
-                    onCloseTransferView={() => setShowTransferReady(false)}
-                    onTransferBatch={handleTransferBatch}
-                    onOpenFinalizeModal={(doc) => setFinalizeDoc(doc)}
-                    onViewThread={(doc) => setThreadDoc(doc)}
-                    onReply={(doc) => {
-                        setReplyToDoc(doc);
-                        setEditorDoc(null);
-                        setIsEditorOpen(true);
-                    }}
-                    onEdit={async (doc) => {
-                        if (!token) return;
-                        try {
-                          const fullDoc = await fetchDocument(token, doc.id);
-                          setEditorDoc(fullDoc);
-                        } catch {
-                          setEditorDoc(doc);
-                        }
-                        setReplyToDoc(null);
-                        setIsEditorOpen(true);
-                    }}
-                    onViewDossier={async (doc) => {
-                        if (!token) return;
-                        try {
-                          const fullDoc = await fetchDocument(token, doc.id);
-                          setDossierDoc(fullDoc);
-                        } catch {
-                          setDossierDoc(doc);
-                        }
-                    }}
-                    onVoid={(doc) => handleVoidDocument(doc.id, window.prompt("⚠️ Motivo de la anulación (Obligatorio ISO 9001):") || "")}
-                 />
-             </div>
-        </div>
-    );
+    return <MainContent />;
   };
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
-       <Navbar 
+       {notification && (
+        <Notification
+          message={notification.message}
+          type={notification.type}
+          onClose={() => setNotification(null)}
+        />
+      )}
+      {loading && <Loader />}
+       <Navbar
          currentUser={currentUser}
          projects={projects}
          activeProjectId={activeProjectId}
@@ -540,14 +570,12 @@ const App: React.FC = () => {
          onLogout={handleLogout}
        />
 
-       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 min-h-screen">
-          {renderContent()}
-       </main>
+      {!currentUser ? <LoginPage onLogin={handleLogin} /> : renderContent()}
 
        {threadDoc && (
            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex justify-end">
                <div className="w-full max-w-2xl h-full animate-slide-in-right">
-                   <TraceabilityTimeline 
+                   <TraceabilityTimeline
                      documents={getDocumentThread(threadDoc.id, documents)}
                      onClose={() => setThreadDoc(null)}
                    />
@@ -556,7 +584,7 @@ const App: React.FC = () => {
        )}
 
        {finalizeDoc && (
-           <SignatureModal 
+           <SignatureModal
              document={finalizeDoc}
              user={currentUser}
              onClose={() => setFinalizeDoc(null)}

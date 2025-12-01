@@ -22,10 +22,28 @@ router.post('/login', async (req: Request, res: Response) => {
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) return res.status(401).json({ error: 'Usuario no encontrado' });
 
+    if (user.lockedUntil && user.lockedUntil > new Date()) {
+      return res.status(403).json({ error: 'Account locked. Try again later.' });
+    }
+
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) {
+      const attempts = user.failedLoginAttempts + 1;
+      let lockedUntil: Date | null = null;
+      if (attempts >= 5) {
+        lockedUntil = new Date(Date.now() + 15 * 60 * 1000); // Lock for 15 minutes
+      }
+      await prisma.user.update({
+        where: { email },
+        data: { failedLoginAttempts: attempts, lockedUntil },
+      });
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
+
+    await prisma.user.update({
+      where: { email },
+      data: { failedLoginAttempts: 0, lockedUntil: null },
+    });
 
     const token = jwt.sign(
       { sub: user.id, email: user.email, role: user.role },
