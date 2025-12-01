@@ -6,7 +6,7 @@
   - Crear/editar documentos: inbound/outbound/internal (existen `/create`, `/inbound`, `/radicar` y update de borrador).
   - Adjuntos: `/documents/:id/attachments` (upload/list/delete/download).
   - Entregas (delivery), void/anulación con motivo, cambios de estado (pendiente → aprobado → radicado básicos).
-- [ ] Auth real: eliminar auto-provision, seeds de usuarios/roles, refresh/expiración configurable.
+- [x] Auth real: eliminar auto-provision, seeds de usuarios/roles, refresh/expiración configurable.
 - [ ] Roles/permisos: middleware por rol y validaciones de estado (no radicar si ya está radicado, etc.).
 - [ ] Proyectos: CRUD, prefijos/series configurables; endpoint TRD si aplica.
 - [ ] Fechas/plazos: calcular/sincronizar `requiresResponse`, `deadline`, `isCompleted`.
@@ -23,9 +23,9 @@
 
 ## 4) Frontend conectado
 - [ ] Reemplazar mocks en dashboard KPIs, alertas y timeline con datos de API.
-- [ ] Editor: guardar borradores/outbounds/internos vía API, radicar con `/documents/:id/radicar`; validaciones UI.
-- [ ] Adjuntos: usar `/documents/:id/attachments` en editor e inbound; mostrar links y tamaños reales.
-- [ ] Inbound: usar archivo real; mostrar radicado y deadline real.
+- [x] Editor: guardar borradores/outbounds/internos vía API, radicar con `/documents/:id/radicar`; validaciones UI.
+- [x] Adjuntos: usar `/documents/:id/attachments` en editor e inbound; mostrar links y tamaños reales.
+- [x] Inbound: usar archivo real; mostrar radicado y deadline real.
 - [ ] Listas/filtros: usar estados reales (draft/pending_approval/pending_scan/radicado/archived/void), requiresResponse/deadline para alertas.
 
 ## 5) PDF/etiquetas y radicado

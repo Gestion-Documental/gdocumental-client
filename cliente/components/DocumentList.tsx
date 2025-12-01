@@ -560,6 +560,16 @@ const DocumentList: React.FC<DocumentListProps> = ({
                                         Upload
                                     </button>
                                 )}
+
+                                {/* Solo Director puede radicar/finalizar; ocultar botones si no procede */}
+                                {userRole === 'DIRECTOR' && doc.status === DocumentStatus.DRAFT && (
+                                    <button
+                                        onClick={() => onOpenFinalizeModal(doc)}
+                                        className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-medium px-3 py-1.5 rounded transition-colors flex items-center gap-2"
+                                    >
+                                        Radicar
+                                    </button>
+                                )}
                             </div>
                         </td>
                         </tr>

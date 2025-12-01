@@ -13,7 +13,6 @@ import LoginPage from './components/LoginPage';
 import AdminDashboard from './components/AdminDashboard';
 import UserProfile from './components/UserProfile';
 import Navbar from './components/Navbar';
-import ProjectSelector from './components/ProjectSelector';
 import DocumentList from './components/DocumentList';
 import DocumentEditor from './components/DocumentEditor';
 import TraceabilityTimeline from './components/TraceabilityTimeline';
@@ -101,11 +100,11 @@ const App: React.FC = () => {
      if (!token) {
         alert('Necesitas iniciar sesión');
         return;
-     }
+    }
 
-     try {
-       const attachmentsToUpload = (data.metadata?.attachments || []).filter((att: any) => att.file);
-       const metadataClean = {
+    try {
+      const attachmentsToUpload = (data.metadata?.attachments || []).filter((att: any) => att.file);
+      const metadataClean = {
          ...(data.metadata || {}),
          attachments: (data.metadata?.attachments || []).map((att: any) => ({
            id: att.id,
@@ -169,15 +168,16 @@ const App: React.FC = () => {
            return exists ? docs.map(d => d.id === updatedDoc!.id ? updatedDoc! : d) : [updatedDoc!, ...docs];
          });
        } else {
-         fetchDocuments(token, activeProjectId).then(setDocuments).catch(() => {});
-       }
-     } catch (err: any) {
+        fetchDocuments(token, activeProjectId).then(setDocuments).catch(() => {});
+      }
+    } catch (err: any) {
+       if (err.code === 401 || err.code === 403) return handleLogout();
        alert(err.message || 'No se pudo guardar el documento');
-     } finally {
-       setIsEditorOpen(false);
-       setEditorDoc(null);
-       setReplyToDoc(null);
-     }
+    } finally {
+      setIsEditorOpen(false);
+      setEditorDoc(null);
+      setReplyToDoc(null);
+    }
   };
 
   const handleSignatureConfirm = async (method: SignatureMethod, _signatureImage?: string) => {
@@ -187,6 +187,7 @@ const App: React.FC = () => {
         setDocuments(docs => docs.map(d => d.id === updated.id ? updated : d));
         setSignedDocView(updated);
       } catch (err: any) {
+        if (err.code === 401 || err.code === 403) return handleLogout();
         alert(err.message || 'No se pudo radicar');
       } finally {
         setFinalizeDoc(null);
@@ -215,6 +216,7 @@ const App: React.FC = () => {
         setIsInboundRegistering(false);
         setDossierDoc(refreshed);
       } catch (error: any) {
+        if (error.code === 401 || error.code === 403) return handleLogout();
         alert(error.message || 'No se pudo registrar la entrada');
       }
   };
@@ -263,8 +265,9 @@ const App: React.FC = () => {
           if (dossierDoc && dossierDoc.id === docId) {
               setDossierDoc(updated);
           }
-        } catch (err: any) {
-          alert(err.message || 'No se pudo anular el documento');
+       } catch (err: any) {
+         if (err.code === 401 || err.code === 403) return handleLogout();
+         alert(err.message || 'No se pudo anular el documento');
         }
       })();
   };
@@ -320,7 +323,27 @@ const App: React.FC = () => {
       setDocuments(docs => docs.map(d => d.id === updated.id ? updated : d));
       if (dossierDoc && dossierDoc.id === docId) setDossierDoc(updated);
     } catch (err: any) {
+      if (err.code === 401 || err.code === 403) return handleLogout();
       alert(err.message || 'No se pudo eliminar el adjunto');
+    }
+  };
+
+  const handleExportClientCsv = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/documents/export/csv`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('No se pudo exportar');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'correspondencia_cliente.csv';
+      link.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert(err.message || 'No se pudo exportar el Excel');
     }
   };
 
@@ -332,6 +355,7 @@ const App: React.FC = () => {
       setDocuments(docs => docs.map(d => d.id === refreshed.id ? refreshed : d));
       if (dossierDoc && dossierDoc.id === docId) setDossierDoc(refreshed);
     } catch (err: any) {
+      if (err.code === 401 || err.code === 403) return handleLogout();
       alert(err.message || 'No se pudo actualizar el estado');
     }
   };
@@ -405,46 +429,37 @@ const App: React.FC = () => {
     }
     
     return (
-        <div className="flex gap-6 h-[calc(100vh-140px)]">
-             <div className="w-64 flex-shrink-0 overflow-y-auto pr-2">
-                 <ProjectSelector 
-                    projects={projects}
-                    activeProjectId={activeProjectId}
-                    onSelectProject={setActiveProjectId}
-                 />
-                 
-                 <div className="mb-6">
-                     <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Quick Actions</h3>
-                     <div className="flex flex-col gap-2">
-                         <button 
-                            onClick={() => {
-                                setEditorDoc(null);
-                                setReplyToDoc(null);
-                                setIsEditorOpen(true);
-                            }}
-                            disabled={!activeProject}
-                            className={`flex items-center gap-2 w-full p-3 rounded-lg shadow-md transition-all font-medium text-sm ${activeProject ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-slate-200 text-slate-500 cursor-not-allowed'}`}
-                         >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                            Nuevo Documento
-                         </button>
-                         <button 
-                            onClick={() => setIsInboundRegistering(true)}
-                            disabled={!activeProject}
-                            className={`flex items-center gap-2 w-full p-3 rounded-lg shadow-md transition-all font-medium text-sm ${activeProject ? 'bg-orange-500 hover:bg-orange-600 text-white' : 'bg-slate-200 text-slate-500 cursor-not-allowed'}`}
-                         >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                            Radicar Entrada
-                         </button>
-                     </div>
+        <div className="flex flex-col gap-6 pb-12">
+             <div className="flex-1 flex flex-col">
+                 <div className="flex flex-col gap-3 mb-6">
+                   <div className="flex flex-col sm:flex-row gap-2 justify-start">
+                     <button 
+                        onClick={() => {
+                            setEditorDoc(null);
+                            setReplyToDoc(null);
+                            setIsEditorOpen(true);
+                        }}
+                        disabled={!activeProject}
+                        className={`flex items-center gap-2 px-5 py-3 min-w-[180px] max-w-[200px] justify-center rounded-lg shadow-md transition-all font-semibold text-sm ${activeProject ? 'bg-blue-600 hover:bg-blue-700 text-white border border-blue-700/40' : 'bg-slate-100 text-slate-500 border border-slate-200 cursor-not-allowed'}`}
+                     >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                        Nuevo Documento
+                     </button>
+                     <button 
+                        onClick={() => setIsInboundRegistering(true)}
+                        disabled={!activeProject}
+                        className={`flex items-center gap-2 px-5 py-3 min-w-[180px] max-w-[200px] justify-center rounded-lg shadow-md transition-all font-semibold text-sm ${activeProject ? 'bg-orange-500 hover:bg-orange-600 text-white border border-orange-600/40' : 'bg-slate-100 text-slate-500 border border-slate-200 cursor-not-allowed'}`}
+                     >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                        Radicar Entrada
+                     </button>
+                   </div>
                  </div>
 
-             </div>
-             
-             <div className="flex-1 flex flex-col overflow-hidden">
                  <DashboardStats 
                     documents={projectDocuments} 
                     onShowTransfers={() => setShowTransferReady(true)}
+                    onExportClientCsv={handleExportClientCsv}
                  />
                  
                  <AlertBanner 
@@ -515,7 +530,7 @@ const App: React.FC = () => {
          onLogout={handleLogout}
        />
 
-       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 h-[calc(100vh-64px)] overflow-hidden">
+       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 min-h-screen">
           {renderContent()}
        </main>
 

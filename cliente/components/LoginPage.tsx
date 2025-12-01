@@ -1,7 +1,6 @@
 
 import React, { useState } from 'react';
 import { User } from '../types';
-import { MOCK_USERS } from '../services/mockData';
 import { login as apiLogin } from '../services/api';
 
 interface LoginPageProps {
@@ -29,6 +28,12 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
         setIsLoading(false);
       });
   };
+
+  const demoUsers = [
+    { label: 'Super Admin', email: 'admin@radika.local', role: 'SUPER_ADMIN' },
+    { label: 'Director', email: 'director@radika.local', role: 'DIRECTOR' },
+    { label: 'Ingeniero', email: 'user@radika.local', role: 'ENGINEER' },
+  ];
 
   return (
     <div className="min-h-screen flex bg-slate-50">
@@ -117,35 +122,34 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                 </button>
             </form>
 
-            {/* QUICK ACCESS DEMO BUTTONS */}
             <div className="mt-8 pt-6 border-t border-slate-100">
-                <p className="text-xs font-bold text-slate-400 uppercase text-center mb-4 tracking-wider">Accesos Rápidos (Demo)</p>
+                <p className="text-xs font-bold text-slate-400 uppercase text-center mb-4 tracking-wider">Accesos Rápidos (Dev)</p>
                 <div className="grid grid-cols-3 gap-3">
-                    {MOCK_USERS.map(user => (
+                    {demoUsers.map(user => (
                         <button
-                            key={user.id}
+                            key={user.email}
                             type="button"
                             onClick={() => {
                               setEmail(user.email);
-                              setPassword('1234');
-                              // dispara el login real
-                              apiLogin(user.email, '1234')
+                              setPassword('123456');
+                              apiLogin(user.email, '123456')
                                 .then(({ token, user: u }) => onLogin(u as User, token))
-                                .catch(() => onLogin(user, 'mock-token'));
+                                .catch((err) => setError(err.message || 'No se pudo iniciar sesión'));
                             }}
                             className="flex flex-col items-center p-3 border border-slate-200 rounded-xl hover:bg-slate-50 hover:border-blue-300 hover:shadow-md transition-all group bg-white"
                         >
-                            <div className="w-10 h-10 rounded-full bg-slate-100 mb-2 overflow-hidden border-2 border-white shadow-sm group-hover:scale-105 transition-transform">
-                                <img src={user.avatarUrl} alt={user.role} className="w-full h-full object-cover" />
+                            <div className="w-10 h-10 rounded-full bg-slate-100 mb-2 overflow-hidden border-2 border-white shadow-sm group-hover:scale-105 transition-transform flex items-center justify-center text-xs font-bold text-slate-600">
+                                {user.label[0]}
                             </div>
-                            <span className="text-[10px] font-bold text-slate-600 uppercase group-hover:text-blue-600">{user.role.replace('SUPER_', '')}</span>
-                            <span className="text-[9px] text-slate-400 truncate max-w-full">{user.fullName.split(' ')[0]}</span>
+                            <span className="text-[10px] font-bold text-slate-600 uppercase group-hover:text-blue-600">{user.label}</span>
+                            <span className="text-[9px] text-slate-400 truncate max-w-full">{user.email}</span>
                         </button>
                     ))}
                 </div>
+                <p className="mt-3 text-center text-[11px] text-slate-400">Uso solo para pruebas locales (pass: 123456)</p>
             </div>
 
-            <div className="mt-8 text-center text-sm text-slate-400">
+            <div className="mt-6 text-center text-sm text-slate-400">
                 <p>Protegido por reCAPTCHA Enterprise</p>
             </div>
          </div>

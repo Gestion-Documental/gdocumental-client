@@ -74,6 +74,8 @@ const SearchToolbar: React.FC<SearchToolbarProps> = ({
           <option value={DocumentStatus.DRAFT}>Borradores</option>
           <option value={DocumentStatus.PENDING_APPROVAL}>Por Aprobar</option>
           <option value={DocumentStatus.PENDING_SCAN}>Por Escanear</option>
+          <option value={DocumentStatus.ARCHIVED}>Archivados</option>
+          <option value={DocumentStatus.VOID}>Anulados</option>
         </select>
 
         <select

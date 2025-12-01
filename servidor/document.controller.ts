@@ -30,6 +30,86 @@ router.get(
   }
 );
 
+// Export CSV with client-specific headers
+router.get(
+  '/export/csv',
+  checkRole([UserRole.ENGINEER, UserRole.DIRECTOR, UserRole.SUPER_ADMIN]),
+  async (_req: AuthenticatedRequest, res: Response) => {
+    try {
+      const docs = await prisma.document.findMany({
+        orderBy: { createdAt: 'asc' },
+        include: { attachments: true },
+      });
+
+      const headers = [
+        'CÓDIGO CONSECUTIVO',
+        'DÍA',
+        'MES',
+        'AÑO',
+        'ANEXOS SI/NO',
+        'No. FOLIOS',
+        'TIPO DE ANEXO',
+        'EMPRESA',
+        'NOMBRE O CARGO',
+        'CON COPIA',
+        'ASUNTO',
+        'RESPONSABLE ENVÍO',
+        'FECHA RECIBIDO DESTINATARIO',
+        'No. RECIBIDO DESTINATARIO',
+        'FECHA RECIBIDO COPIA',
+        'No. RECIBIDO COPIA',
+      ];
+
+      const rows = docs.map((d) => {
+        const m: any = d.metadata || {};
+        const created = d.createdAt ? new Date(d.createdAt) : new Date();
+        const delivery = m.delivery || {};
+        const annexYes = (d.attachments?.length || 0) > 0 ? 'SI' : 'NO';
+        const annexPages = m.annexPages || '';
+        const annexType = m.annexType || '';
+        const recipientCompany = m.recipientCompany || '';
+        const recipientName = m.recipientName || m.recipient || '';
+        const cc = Array.isArray(m.ccList) ? m.ccList.join('; ') : '';
+        const subject = d.title || '';
+        const sentBy = m.sentBy || m.author || '';
+        const recvDate = delivery.receivedAt || '';
+        const recvNumber = delivery.receiptNumber || '';
+        const copyDate = delivery.copyReceivedAt || '';
+        const copyNumber = delivery.copyReceiptNumber || '';
+
+        return [
+          d.radicadoCode || '',
+          created.getDate(),
+          created.getMonth() + 1,
+          created.getFullYear(),
+          annexYes,
+          annexPages,
+          annexType,
+          recipientCompany,
+          recipientName,
+          cc,
+          subject,
+          sentBy,
+          recvDate,
+          recvNumber,
+          copyDate,
+          copyNumber,
+        ]
+          .map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`)
+          .join(',');
+      });
+
+      const csv = [headers.join(','), ...rows].join('\n');
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="correspondencia.csv"');
+      return res.send('\uFEFF' + csv); // BOM for Excel
+    } catch (error) {
+      console.error('Export CSV error:', error);
+      return res.status(500).json({ error: 'No se pudo exportar el CSV' });
+    }
+  }
+);
+
 // Get single document
 router.get(
   '/:id',
@@ -67,6 +147,9 @@ router.put(
       ) {
         return res.status(400).json({ error: 'No se puede editar un documento finalizado/anulado' });
       }
+      if (req.user?.role === UserRole.ENGINEER && doc.status !== DocumentStatus.DRAFT) {
+        return res.status(403).json({ error: 'Solo directores pueden editar documentos no borrador' });
+      }
 
       const updated = await prisma.document.update({
         where: { id },
@@ -100,6 +183,16 @@ router.post(
       const { id } = req.params;
       const file = req.file;
       if (!file) return res.status(400).json({ error: 'Archivo requerido' });
+
+      const doc = await prisma.document.findUnique({ where: { id } });
+      if (!doc) return res.status(404).json({ error: 'Documento no encontrado' });
+      if (
+        doc.status === DocumentStatus.RADICADO ||
+        doc.status === DocumentStatus.ARCHIVED ||
+        doc.status === DocumentStatus.VOID
+      ) {
+        return res.status(400).json({ error: 'No se pueden subir adjuntos a documentos finalizados/anulados' });
+      }
 
       const storage = getStorage();
       const stored = await storage.save({
@@ -188,6 +281,15 @@ router.delete(
       if (!att || att.documentId !== id) {
         return res.status(404).json({ error: 'Adjunto no encontrado' });
       }
+      const doc = await prisma.document.findUnique({ where: { id } });
+      if (!doc) return res.status(404).json({ error: 'Documento no encontrado' });
+      if (
+        doc.status === DocumentStatus.RADICADO ||
+        doc.status === DocumentStatus.ARCHIVED ||
+        doc.status === DocumentStatus.VOID
+      ) {
+        return res.status(400).json({ error: 'No se pueden eliminar adjuntos de documentos finalizados/anulados' });
+      }
       const storage = getStorage();
       if (att.storagePath) {
         await storage.delete(att.storagePath);
@@ -217,6 +319,21 @@ router.post(
       if (doc.status === DocumentStatus.RADICADO && status === DocumentStatus.DRAFT) {
         return res.status(400).json({ error: 'No se puede regresar a borrador' });
       }
+      if (doc.status === DocumentStatus.RADICADO && status === DocumentStatus.PENDING_APPROVAL) {
+        return res.status(400).json({ error: 'No se puede revertir un radicado a aprobación' });
+      }
+
+      const validTransitions: Record<DocumentStatus, DocumentStatus[]> = {
+        DRAFT: [DocumentStatus.PENDING_APPROVAL, DocumentStatus.VOID],
+        PENDING_APPROVAL: [DocumentStatus.RADICADO, DocumentStatus.VOID],
+        PENDING_SCAN: [DocumentStatus.RADICADO, DocumentStatus.VOID],
+        RADICADO: [DocumentStatus.ARCHIVED, DocumentStatus.VOID],
+        ARCHIVED: [DocumentStatus.VOID],
+        VOID: [],
+      };
+      if (!validTransitions[doc.status]?.includes(status)) {
+        return res.status(400).json({ error: 'Transición de estado no permitida' });
+      }
 
       const updated = await prisma.document.update({
         where: { id },
@@ -240,6 +357,12 @@ router.post(
       const { receivedBy, receivedAt, deliveryProof } = req.body;
       const doc = await prisma.document.findUnique({ where: { id } });
       if (!doc) return res.status(404).json({ error: 'Documento no encontrado' });
+      if (doc.type !== DocumentType.OUTBOUND) {
+        return res.status(400).json({ error: 'Entrega aplica solo a salidas (OUTBOUND)' });
+      }
+      if (doc.status !== DocumentStatus.RADICADO && doc.status !== DocumentStatus.PENDING_SCAN) {
+        return res.status(400).json({ error: 'Solo documentos radicados pueden registrarse como entregados' });
+      }
 
       const updated = await prisma.document.update({
         where: { id },
@@ -415,6 +538,9 @@ router.post(
 
       if (doc.status === DocumentStatus.RADICADO || doc.status === DocumentStatus.ARCHIVED || doc.status === DocumentStatus.VOID) {
         return res.status(400).json({ error: 'Documento no editable (radicado/archivado/anulado)' });
+      }
+      if (doc.status !== DocumentStatus.DRAFT && doc.status !== DocumentStatus.PENDING_APPROVAL) {
+        return res.status(400).json({ error: 'Solo borradores o pendientes pueden radicarse' });
       }
 
       const typeCode = doc.type === DocumentType.INBOUND ? 'IN' : doc.type === DocumentType.OUTBOUND ? 'OUT' : 'INT';

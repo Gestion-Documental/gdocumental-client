@@ -406,7 +406,7 @@ const DossierView: React.FC<DossierViewProps> = ({ document, userRole, currentUs
 
 
                 <div className="space-y-3 mt-auto">
-                    {document.status === DocumentStatus.RADICADO && !isVoid && (
+                    {document.status === DocumentStatus.RADICADO && !isVoid && userRole === 'DIRECTOR' && (
                         <button
                           onClick={() => setShowEmailModal(true)}
                           className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold shadow-md flex items-center justify-center gap-2 transition-all"

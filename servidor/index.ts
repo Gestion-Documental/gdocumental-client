@@ -64,10 +64,10 @@ async function ensureSeedData() {
   }
 }
 
-ensureSeedData()
-  .catch((err) => console.error('Seed error:', err))
-  .finally(() => {
-    app.listen(port, () => {
-      console.log(`Gestion documental API corriendo en el puerto ${port}`);
-    });
-  });
+if (process.env.NODE_ENV !== 'production') {
+  ensureSeedData().catch((err) => console.error('Seed error:', err));
+}
+
+app.listen(port, () => {
+  console.log(`Gestion documental API corriendo en el puerto ${port}`);
+});

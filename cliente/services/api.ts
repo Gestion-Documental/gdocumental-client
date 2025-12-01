@@ -7,6 +7,14 @@ const authHeader = (token: string) => ({
   Authorization: `Bearer ${token}`,
 });
 
+async function ensureAuth(res: Response) {
+  if (res.status === 401 || res.status === 403) {
+    const err = new Error('auth');
+    (err as any).code = res.status;
+    throw err;
+  }
+}
+
 const mapProject = (p: any) => ({
   id: p.id,
   name: p.name,
@@ -62,6 +70,7 @@ export async function fetchProjects(token: string) {
   const res = await fetch(`${API_URL}/projects`, {
     headers: authHeader(token),
   });
+  await ensureAuth(res as any);
   if (!res.ok) throw new Error('No se pudieron obtener proyectos');
   const data = await res.json();
   return (data as any[]).map(mapProject);
@@ -69,6 +78,7 @@ export async function fetchProjects(token: string) {
 
 export async function fetchDocument(token: string, id: string) {
   const res = await fetch(`${API_URL}/documents/${id}`, { headers: authHeader(token) });
+  await ensureAuth(res as any);
   if (!res.ok) throw new Error('No se pudo obtener el documento');
   return mapDocument(await res.json());
 }
@@ -77,6 +87,7 @@ export async function fetchDocuments(token: string, projectId?: string): Promise
   const url = new URL(`${API_URL}/documents`);
   if (projectId) url.searchParams.set('projectId', projectId);
   const res = await fetch(url.toString(), { headers: authHeader(token) });
+  await ensureAuth(res as any);
   if (!res.ok) throw new Error('No se pudieron obtener documentos');
   const data = await res.json();
   return (data as any[]).map(mapDocument);
@@ -98,6 +109,7 @@ export async function createDocument(token: string, payload: {
     headers: authHeader(token),
     body: JSON.stringify(payload),
   });
+  await ensureAuth(res as any);
   if (!res.ok) {
     const msg = await res.json().catch(() => ({}));
     throw new Error(msg.error || 'No se pudo crear el documento');
@@ -111,6 +123,7 @@ export async function updateDocument(token: string, id: string, payload: any) {
     headers: authHeader(token),
     body: JSON.stringify(payload),
   });
+  await ensureAuth(res as any);
   if (!res.ok) {
     const msg = await res.json().catch(() => ({}));
     throw new Error(msg.error || 'No se pudo actualizar el documento');
@@ -132,6 +145,7 @@ export async function createInboundDocument(token: string, payload: {
     headers: authHeader(token),
     body: JSON.stringify(payload),
   });
+  await ensureAuth(res as any);
   if (!res.ok) {
     const msg = await res.json().catch(() => ({}));
     throw new Error(msg.error || 'No se pudo registrar la entrada');
@@ -145,6 +159,7 @@ export async function radicarDocument(token: string, id: string, signatureMethod
     headers: authHeader(token),
     body: JSON.stringify({ signatureMethod }),
   });
+  await ensureAuth(res as any);
   if (!res.ok) {
     const msg = await res.json().catch(() => ({}));
     throw new Error(msg.error || 'No se pudo radicar el documento');
@@ -161,6 +176,7 @@ export async function uploadAttachment(token: string, docId: string, file: File)
     headers: { Authorization: `Bearer ${token}` },
     body: formData,
   });
+  await ensureAuth(res as any);
   if (!res.ok) {
     const msg = await res.json().catch(() => ({}));
     throw new Error(msg.error || 'No se pudo subir el archivo');
@@ -172,6 +188,7 @@ export async function listAttachments(token: string, docId: string) {
   const res = await fetch(`${API_URL}/documents/${docId}/attachments`, {
     headers: authHeader(token),
   });
+  await ensureAuth(res as any);
   if (!res.ok) throw new Error('No se pudieron obtener adjuntos');
   return res.json();
 }
@@ -181,6 +198,7 @@ export async function deleteAttachment(token: string, docId: string, attachmentI
     method: 'DELETE',
     headers: authHeader(token),
   });
+  await ensureAuth(res as any);
   if (!res.ok) throw new Error('No se pudo eliminar el adjunto');
   return res.json();
 }
@@ -191,6 +209,7 @@ export async function updateStatus(token: string, id: string, status: string) {
     headers: authHeader(token),
     body: JSON.stringify({ status }),
   });
+  await ensureAuth(res as any);
   if (!res.ok) {
     const msg = await res.json().catch(() => ({}));
     throw new Error(msg.error || 'No se pudo actualizar el estado');
@@ -204,6 +223,7 @@ export async function updateDelivery(token: string, id: string, payload: { recei
     headers: authHeader(token),
     body: JSON.stringify(payload),
   });
+  await ensureAuth(res as any);
   if (!res.ok) {
     const msg = await res.json().catch(() => ({}));
     throw new Error(msg.error || 'No se pudo registrar la entrega');

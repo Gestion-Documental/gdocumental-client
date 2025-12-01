@@ -6,9 +6,10 @@ import { Document, DocumentStatus } from '../types';
 interface DashboardStatsProps {
   documents: Document[];
   onShowTransfers?: () => void; // New Handler
+  onExportClientCsv?: () => void;
 }
 
-const DashboardStats: React.FC<DashboardStatsProps> = ({ documents, onShowTransfers }) => {
+const DashboardStats: React.FC<DashboardStatsProps> = ({ documents, onShowTransfers, onExportClientCsv }) => {
   
   // Metric 1: Total Volume
   const totalDocs = documents.length;
@@ -85,6 +86,14 @@ const DashboardStats: React.FC<DashboardStatsProps> = ({ documents, onShowTransf
         
         {/* Header Actions */}
         <div className="flex justify-end animate-fade-in">
+             {onExportClientCsv && (
+               <button
+                  onClick={onExportClientCsv}
+                  className="text-xs font-bold text-slate-500 hover:text-green-600 bg-white border border-slate-200 px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-2 transition-colors mr-2"
+               >
+                  📥 Exportar Excel Cliente
+               </button>
+             )}
              <button 
                 onClick={handleExportMasterList}
                 className="text-xs font-bold text-slate-500 hover:text-blue-600 bg-white border border-slate-200 px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-2 transition-colors"
