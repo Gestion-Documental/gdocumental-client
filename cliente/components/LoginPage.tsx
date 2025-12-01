@@ -4,7 +4,7 @@ import { User } from '../types';
 import { login as apiLogin } from '../services/api';
 
 interface LoginPageProps {
-  onLogin: (user: User, token: string) => void;
+  onLogin: (user: User, token: string, refreshToken?: string) => void;
 }
 
 const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
@@ -19,8 +19,8 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
     setIsLoading(true);
 
     apiLogin(email, password)
-      .then(({ token, user }) => {
-        onLogin(user as User, token);
+      .then(({ token, refreshToken, user }) => {
+        onLogin(user as User, token, refreshToken);
         setIsLoading(false);
       })
       .catch((err) => {
@@ -133,7 +133,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                               setEmail(user.email);
                               setPassword('123456');
                               apiLogin(user.email, '123456')
-                                .then(({ token, user: u }) => onLogin(u as User, token))
+                                .then(({ token, refreshToken, user: u }) => onLogin(u as User, token, refreshToken))
                                 .catch((err) => setError(err.message || 'No se pudo iniciar sesión'));
                             }}
                             className="flex flex-col items-center p-3 border border-slate-200 rounded-xl hover:bg-slate-50 hover:border-blue-300 hover:shadow-md transition-all group bg-white"

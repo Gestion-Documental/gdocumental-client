@@ -250,3 +250,18 @@ export async function downloadLabel(token: string, id: string) {
   const blob = await res.blob();
   return blob;
 }
+
+export async function refreshAccessToken(refreshToken: string) {
+  const res = await fetch(`${API_URL}/auth/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refreshToken }),
+  });
+  if (!res.ok) {
+    const msg = await res.json().catch(() => ({}));
+    const err = new Error(msg.error || 'No se pudo refrescar sesión');
+    (err as any).code = res.status;
+    throw err;
+  }
+  return res.json();
+}

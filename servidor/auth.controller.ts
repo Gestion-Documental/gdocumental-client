@@ -12,6 +12,22 @@ const JWT_ACCESS_EXPIRES = process.env.JWT_ACCESS_EXPIRES || '8h';
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET || 'dev-refresh-secret';
 const JWT_REFRESH_EXPIRES = process.env.JWT_REFRESH_EXPIRES || '7d';
 
+async function logAudit(userId: string | undefined, action: string, details?: string) {
+  try {
+    await prisma.auditLog.create({
+      data: {
+        userId: userId || 'system',
+        action,
+        details: details || '',
+        actor: userId || 'system',
+        actorEmail: '',
+      }
+    });
+  } catch (e) {
+    console.warn('Audit log error', e);
+  }
+}
+
 router.post('/login', async (req: Request, res: Response) => {
   const { email, password } = req.body;
   if (!email || !password) {
@@ -37,6 +53,8 @@ router.post('/login', async (req: Request, res: Response) => {
       JWT_REFRESH_SECRET,
       { expiresIn: JWT_REFRESH_EXPIRES },
     );
+
+    await logAudit(user.id, 'LOGIN', `Login ${user.email}`);
 
     return res.json({
       token,
@@ -89,6 +107,7 @@ router.post('/logout', async (req: Request, res: Response) => {
       where: { id: payload.sub },
       data: { tokenVersion: { increment: 1 } },
     });
+    await logAudit(payload.sub, 'LOGOUT', 'Logout / invalidate refresh');
   } catch (err) {
     // ignore invalid token
   }

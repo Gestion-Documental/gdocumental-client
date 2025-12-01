@@ -33,6 +33,24 @@ function computeDeadlineFromTrd(metadata: any, projectTrd: any[] | null | undefi
   return null;
 }
 
+async function logAudit(userId: string | undefined, action: string, entityType?: string, entityId?: string, details?: string) {
+  try {
+    await prisma.auditLog.create({
+      data: {
+        userId: userId || 'system',
+        action,
+        entityType,
+        entityId,
+        details: details || '',
+        actor: userId || 'system',
+        actorEmail: '',
+      },
+    });
+  } catch (e) {
+    console.warn('Audit log error', e);
+  }
+}
+
 // List documents for a project (basic)
 router.get(
   '/',
@@ -334,6 +352,7 @@ router.post(
         },
       });
 
+      await logAudit(req.user?.id, 'ATTACHMENT_UPLOAD', 'Document', id, `Subió ${file.originalname}`);
       res.json(attachment);
     } catch (error) {
       console.error('Attachment upload error', error);
@@ -417,6 +436,7 @@ router.delete(
         await storage.delete(att.storagePath);
       }
       await prisma.attachment.delete({ where: { id: attachmentId } });
+      await logAudit(req.user?.id, 'ATTACHMENT_DELETE', 'Document', id, `Adjunto ${attachmentId}`);
       res.json({ ok: true });
     } catch (error) {
       console.error('Delete attachment error', error);
@@ -461,6 +481,7 @@ router.post(
         where: { id },
         data: { status, updatedAt: new Date() },
       });
+      await logAudit(req.user?.id, 'DOCUMENT_STATUS', 'Document', updated.id, `Estado ${doc.status} -> ${status}`);
       res.json(updated);
     } catch (error) {
       console.error('Update status error', error);
@@ -498,6 +519,7 @@ router.post(
           updatedAt: new Date(),
         },
       });
+      await logAudit(req.user?.id, 'DOCUMENT_DELIVERY', 'Document', updated.id, `Entrega registrada ${receivedBy || ''}`);
       res.json(updated);
     } catch (error) {
       console.error('Delivery update error', error);
@@ -553,6 +575,7 @@ router.post(
         },
       });
 
+      await logAudit(req.user?.id, 'DOCUMENT_INBOUND', 'Document', doc.id, `Inbound ${doc.title}`);
       return res.status(201).json(doc);
     } catch (err) {
       console.error('Inbound register error:', err);
@@ -600,6 +623,7 @@ router.post(
         }
       });
 
+      await logAudit(req.user?.id, 'DOCUMENT_CREATE', 'Document', doc.id, `Borrador ${title}`);
       return res.status(201).json({ id: doc.id, status: doc.status });
     } catch (err) {
       console.error('Create draft error:', err);
@@ -660,6 +684,7 @@ router.post(
         }
       });
 
+      await logAudit(req.user?.id, 'DOCUMENT_SIGN', 'Document', updated.id, `Firmado y radicado ${updated.radicadoCode}`);
       return res.json({ radicadoCode: updated.radicadoCode, status: updated.status });
     } catch (err) {
       console.error('Sign error:', err);
@@ -717,6 +742,7 @@ router.post(
         },
       });
 
+      await logAudit(req.user?.id, 'DOCUMENT_RADICAR', 'Document', updated.id, `Radicado ${updated.radicadoCode} (${finalStatus})`);
       return res.json(updated);
     } catch (err) {
       console.error('Radicar error:', err);

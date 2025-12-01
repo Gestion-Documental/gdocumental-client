@@ -4,7 +4,7 @@ import {
   Project, Document, DocumentType, DocumentStatus, 
   SignatureMethod, ViewState, User
 } from './types';
-import { login as apiLogin, fetchDocuments, createInboundDocument, radicarDocument, fetchProjects, createDocument, uploadAttachment, fetchDocument, deleteAttachment, updateDelivery, updateDocument, updateStatus, API_URL, fetchProjectTrd } from './services/api';
+import { login as apiLogin, fetchDocuments, createInboundDocument, radicarDocument, fetchProjects, createDocument, uploadAttachment, fetchDocument, deleteAttachment, updateDelivery, updateDocument, updateStatus, API_URL, fetchProjectTrd, refreshAccessToken } from './services/api';
 
 import LoginPage from './components/LoginPage';
 import AdminDashboard from './components/AdminDashboard';
@@ -33,6 +33,7 @@ const App: React.FC = () => {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [currentView, setCurrentView] = useState<ViewState>('LOGIN');
   const [token, setToken] = useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = useState<string | null>(null);
 
   // Editor State
   const [isEditorOpen, setIsEditorOpen] = useState(false);
@@ -126,17 +127,23 @@ const App: React.FC = () => {
   }, [token, activeProjectId]);
 
   // --- AUTH HANDLERS ---
-  const handleLogin = (user: User, authToken: string) => {
+  const handleLogin = (user: User, authToken: string, refresh?: string) => {
       setCurrentUser(user);
       setToken(authToken);
+      if (refresh) {
+        setRefreshToken(refresh);
+        localStorage.setItem('radika_refresh', refresh);
+      }
       setCurrentView(user.role === 'SUPER_ADMIN' ? 'ADMIN_DASHBOARD' : 'DASHBOARD');
   };
 
   const handleLogout = () => {
       setCurrentUser(null);
       setToken(null);
+      setRefreshToken(null);
       setDocuments([]);
       setCurrentView('LOGIN');
+      localStorage.removeItem('radika_refresh');
   };
 
   // --- DOCUMENT HANDLERS ---
@@ -409,8 +416,22 @@ const App: React.FC = () => {
 
   // --- RENDER LOGIC ---
 
+  // Intentar sesión desde refresh token almacenado
+  React.useEffect(() => {
+    if (token || currentUser) return;
+    const stored = localStorage.getItem('radika_refresh');
+    if (!stored) return;
+    refreshAccessToken(stored)
+      .then((data) => {
+        handleLogin(data.user, data.token, stored);
+      })
+      .catch(() => {
+        localStorage.removeItem('radika_refresh');
+      });
+  }, [token, currentUser]);
+
   if (!currentUser) {
-      return <LoginPage onLogin={handleLogin} />;
+      return <LoginPage onLogin={(user, t, r) => handleLogin(user, t, r || undefined)} />;
   }
 
   if (currentView === 'ADMIN_DASHBOARD' && currentUser.role === 'SUPER_ADMIN') {
