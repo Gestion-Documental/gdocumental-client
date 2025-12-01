@@ -9,6 +9,7 @@ import path from 'path';
 import fs from 'fs';
 import PDFDocument from 'pdfkit';
 import QRCode from 'qrcode';
+import fetch from 'node-fetch';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -137,6 +138,8 @@ router.get(
   checkRole([UserRole.ENGINEER, UserRole.DIRECTOR, UserRole.SUPER_ADMIN]),
   async (req: AuthenticatedRequest, res: Response) => {
     const { id } = req.params;
+    const logoQuery = req.query.logo as string | undefined;
+    const headerText = (req.query.header as string | undefined) || 'Radika • Etiqueta de Radicado';
     try {
       const doc = await prisma.document.findUnique({
         where: { id },
@@ -154,12 +157,36 @@ router.get(
       const qrDataUrl = await QRCode.toDataURL(JSON.stringify(qrPayload), { margin: 1, width: 300 });
       const qrBuffer = Buffer.from(qrDataUrl.split(',')[1], 'base64');
 
+      // Try to fetch logo (query param, doc metadata, env)
+      const logoUrl =
+        logoQuery ||
+        (doc.metadata as any)?.logoUrl ||
+        process.env.RADIKA_LOGO_URL;
+      let logoBuffer: Buffer | null = null;
+      if (logoUrl) {
+        try {
+          const resp = await fetch(logoUrl);
+          if (resp.ok) {
+            const arr = await resp.arrayBuffer();
+            logoBuffer = Buffer.from(arr);
+          }
+        } catch (e) {
+          console.warn('No se pudo cargar logo para etiqueta', e);
+        }
+      }
+
       const pdf = new PDFDocument({ size: 'A6', margin: 16 });
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `inline; filename="${doc.radicadoCode}.pdf"`);
       pdf.pipe(res);
 
-      pdf.fontSize(12).fillColor('#0f172a').text('Radika • Etiqueta de Radicado', { align: 'left' });
+      // Logo y encabezado
+      if (logoBuffer) {
+        pdf.image(logoBuffer, pdf.x, pdf.y, { fit: [64, 32] });
+        pdf.moveDown(0.8);
+      }
+
+      pdf.fontSize(12).fillColor('#0f172a').text(headerText, { align: 'left' });
       pdf.moveDown(0.5);
       pdf.fontSize(10).fillColor('#1f2937');
       pdf.text(`Radicado: ${doc.radicadoCode}`);

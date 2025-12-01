@@ -17,6 +17,7 @@ Este repo tiene dos carpetas:
 - Front en `cliente/`:
   - Usa backend real: login con usuarios seeded, dashboard con datos reales, editor conecta a TRD y adjuntos, permisos UI según rol/estado.
   - Manejo de 401/403: logout/redirección.
+  - Etiqueta PDF: botón en lista descarga `/documents/:id/label` (acepta `logo` query param o `metadata.logoUrl` para branding por proyecto).
 
 ## Requisitos
 - Node 18+

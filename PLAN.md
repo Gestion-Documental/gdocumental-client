@@ -29,9 +29,9 @@
  - [x] Listas/filtros: usar estados reales (draft/pending_approval/pending_scan/radicado/archived/void), requiresResponse/deadline para alertas.
 
 ## 5) PDF/etiquetas y radicado
-- [ ] Generar radicado en backend con formato acordado (prefijo-serie-IN/OUT/INT-año-secuencia).
-- [ ] Sello/etiqueta PDF o sticker con QR/hash; endpoint de export.
-- [ ] Gestión `PENDING_SCAN` para salidas físicas; flujo de carga de escaneados.
+- [x] Generar radicado en backend con formato acordado (prefijo-serie-IN/OUT/INT-año-secuencia).
+- [x] Sello/etiqueta PDF o sticker con QR/hash; endpoint de export.
+- [x] Gestión `PENDING_SCAN` para salidas físicas; flujo de carga de escaneados.
 
 ## 6) Seguridad y UX
 - [ ] Manejo de errores global en front (toasts/alerts).
