@@ -366,7 +366,7 @@ const DocumentList: React.FC<DocumentListProps> = ({
                   {outboundHighlights.map(doc => (
                     <div key={doc.id} className="flex items-start gap-3 text-sm">
                       <div className="w-10 h-10 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center text-[11px] font-bold text-blue-700 shrink-0">
-                        {(doc.metadata?.sender || doc.author || 'SY').slice(0,2).toUpperCase()}
+                        {(doc.metadata?.sender || doc.author?.fullName || 'SY').slice(0,2).toUpperCase()}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 text-xs text-slate-400">
@@ -451,7 +451,7 @@ const DocumentList: React.FC<DocumentListProps> = ({
                         const isVoid = doc.status === DocumentStatus.VOID;
                         
                         // Parties
-                        const authorName = doc.author || doc.metadata?.sender || 'Sistema';
+                        const authorName = doc.author?.fullName || doc.metadata?.sender || 'Sistema';
                         const recipientName = doc.metadata?.recipientName || doc.metadata?.recipient || '—';
                         const authorInitials = authorName
                           ? authorName.split(' ').map((n: string) => n[0]).join('').substring(0,2).toUpperCase()

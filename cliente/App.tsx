@@ -4,7 +4,7 @@ import {
   Project, Document, DocumentType, DocumentStatus, 
   SignatureMethod, ViewState, User
 } from './types';
-import { login as apiLogin, fetchDocuments, createInboundDocument, radicarDocument, fetchProjects, createDocument, uploadAttachment, fetchDocument, deleteAttachment, updateDelivery, updateDocument, updateStatus, API_URL, fetchProjectTrd, refreshAccessToken } from './services/api';
+import { login as apiLogin, fetchDocuments, createInboundDocument, radicarDocument, fetchProjects, createDocument, uploadAttachment, fetchDocument, deleteAttachment, updateDelivery, updateDocument, updateStatus, API_URL, fetchProjectTrd, refreshAccessToken, fetchUsers, assignDocument, fetchMe } from './services/api';
 
 import LoginPage from './components/LoginPage';
 import AdminDashboard from './components/AdminDashboard';
@@ -21,6 +21,7 @@ import DossierView from './components/DossierView';
 import ArchiveManager from './components/ArchiveManager';
 import InboundRegistration from './components/InboundRegistration';
 import { useToast } from './components/ToastProvider';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const App: React.FC = () => {
   const { addToast } = useToast();
@@ -52,6 +53,8 @@ const App: React.FC = () => {
   const [signedDocView, setSignedDocView] = useState<Document | null>(null);
   const [dossierDoc, setDossierDoc] = useState<Document | null>(null);
   const [showAttentionList, setShowAttentionList] = useState(false);
+  const [showAssignedToMe, setShowAssignedToMe] = useState(false);
+  const [users, setUsers] = useState<{ id: string; fullName: string; role: string }[]>([]);
 
   const activeProject = projects.find(p => p.id === activeProjectId) || projects[0];
 
@@ -95,7 +98,27 @@ const App: React.FC = () => {
     return thread.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }, [documents]);
 
-  // Fetch projects on login
+  // Restore session on mount
+  React.useEffect(() => {
+    const storedToken = localStorage.getItem('radika_token');
+    if (storedToken) {
+      setToken(storedToken);
+      fetchMe(storedToken)
+        .then(user => {
+            console.log('Session restored RAW USER:', user);
+            if (!user || !user.id) {
+                console.error('Session restored but user is invalid:', user);
+                // Don't set current user if invalid
+                return;
+            }
+            setCurrentUser(user);
+        })
+        .catch(err => {
+            console.error('Session restore failed', err);
+            handleLogout(); // Invalid token
+        });
+    }
+  }, []);
   React.useEffect(() => {
     if (!token) return;
     fetchProjects(token)
@@ -122,7 +145,15 @@ const App: React.FC = () => {
   React.useEffect(() => {
     if (!token || !activeProjectId) return;
     fetchDocuments(token, activeProjectId)
-      .then(setDocuments)
+      .then(docs => {
+        console.log('Fetched Documents:', docs);
+        console.log('Assignments in Fetched Docs:', docs.filter((d: any) => d.assignedToUser).map((d: any) => d.assignedToUser));
+        setDocuments(docs);
+      })
+      .catch((err) => console.error('Fetch docs error', err));
+      
+    fetchUsers(token)
+      .then(setUsers)
       .catch(() => {});
   }, [token, activeProjectId]);
 
@@ -130,6 +161,7 @@ const App: React.FC = () => {
   const handleLogin = (user: User, authToken: string, refresh?: string) => {
       setCurrentUser(user);
       setToken(authToken);
+      localStorage.setItem('radika_token', authToken); // Save access token for direct fetch calls
       if (refresh) {
         setRefreshToken(refresh);
         localStorage.setItem('radika_refresh', refresh);
@@ -137,13 +169,15 @@ const App: React.FC = () => {
       setCurrentView(user.role === 'SUPER_ADMIN' ? 'ADMIN_DASHBOARD' : 'DASHBOARD');
   };
 
-  const handleLogout = () => {
+  const handleLogout = (reason?: string) => {
+      if (reason) addToast(reason, 'info');
       setCurrentUser(null);
       setToken(null);
       setRefreshToken(null);
       setDocuments([]);
       setCurrentView('LOGIN');
       localStorage.removeItem('radika_refresh');
+      localStorage.removeItem('radika_token');
   };
 
   // --- DOCUMENT HANDLERS ---
@@ -225,7 +259,7 @@ const App: React.FC = () => {
         fetchDocuments(token, activeProjectId).then(setDocuments).catch(() => {});
       }
     } catch (err: any) {
-       if (err.code === 401 || err.code === 403) return handleLogout();
+       if (err.code === 401 || err.code === 403) return handleLogout('Sesión expirada');
        addToast(err.message || 'No se pudo guardar el documento', 'error');
     } finally {
       setIsEditorOpen(false);
@@ -241,7 +275,7 @@ const App: React.FC = () => {
         setDocuments(docs => docs.map(d => d.id === updated.id ? updated : d));
         setSignedDocView(updated);
       } catch (err: any) {
-        if (err.code === 401 || err.code === 403) return handleLogout();
+        if (err.code === 401 || err.code === 403) return handleLogout('Sesión expirada');
         addToast(err.message || 'No se pudo radicar', 'error');
       } finally {
         setFinalizeDoc(null);
@@ -271,12 +305,12 @@ const App: React.FC = () => {
         setDossierDoc(refreshed);
         addToast('Entrada radicada correctamente', 'success');
       } catch (error: any) {
-        if (error.code === 401 || error.code === 403) return handleLogout();
+        if (error.code === 401 || error.code === 403) return handleLogout('Sesión expirada');
         addToast(error.message || 'No se pudo registrar la entrada', 'error');
       }
   };
   
-  const handleRegisterDelivery = (docId: string, data: { receivedBy: string; receivedAt: string; proof: string }) => {
+  const handleRegisterDelivery = (docId: string, data: { receivedBy: string; receivedAt: string; file: File }) => {
       if (!token) return;
       updateDelivery(token, docId, data)
         .then(async () => {
@@ -322,7 +356,7 @@ const App: React.FC = () => {
           }
           addToast('Documento anulado con éxito', 'success');
        } catch (err: any) {
-         if (err.code === 401 || err.code === 403) return handleLogout();
+         if (err.code === 401 || err.code === 403) return handleLogout('Sesión expirada');
          addToast(err.message || 'No se pudo anular el documento', 'error');
         }
       })();
@@ -379,7 +413,7 @@ const App: React.FC = () => {
       setDocuments(docs => docs.map(d => d.id === updated.id ? updated : d));
       if (dossierDoc && dossierDoc.id === docId) setDossierDoc(updated);
     } catch (err: any) {
-      if (err.code === 401 || err.code === 403) return handleLogout();
+      if (err.code === 401 || err.code === 403) return handleLogout('Sesión expirada');
       addToast(err.message || 'No se pudo eliminar el adjunto', 'error');
     }
   };
@@ -411,7 +445,7 @@ const App: React.FC = () => {
       setDocuments(docs => docs.map(d => d.id === refreshed.id ? refreshed : d));
       if (dossierDoc && dossierDoc.id === docId) setDossierDoc(refreshed);
     } catch (err: any) {
-      if (err.code === 401) return handleLogout();
+      if (err.code === 401) return handleLogout('Sesión expirada');
       if (err.code === 403) return addToast('No tienes permiso para esta acción', 'error');
       addToast(err.message || 'No se pudo actualizar el estado', 'error');
     }
@@ -438,14 +472,22 @@ const App: React.FC = () => {
   }
 
   if (currentView === 'ADMIN_DASHBOARD' && currentUser.role === 'SUPER_ADMIN') {
-      return <AdminDashboard onLogout={handleLogout} />;
+      return <AdminDashboard onLogout={() => handleLogout()} />;
   }
 
   if (currentView === 'USER_PROFILE') {
-      return <UserProfile user={currentUser} token={token || ''} onBack={() => setCurrentView('DASHBOARD')} />;
+      return <UserProfile user={currentUser} token={token || ''} onBack={() => setCurrentView('DASHBOARD')} onUpdate={(u) => setCurrentUser(u)} />;
   }
 
   const renderContent = () => {
+    console.log("App.tsx: renderContent called. State:", {
+        isInboundRegistering,
+        currentView,
+        signedDocView: !!signedDocView,
+        dossierDoc: !!dossierDoc,
+        isEditorOpen,
+        activeProject: !!activeProject
+    });
     if (isInboundRegistering) {
         return (
             <InboundRegistration 
@@ -477,26 +519,53 @@ const App: React.FC = () => {
             onDeleteAttachment={(attId) => handleDeleteAttachment(dossierDoc.id, attId)}
             apiBaseUrl={API_URL}
             onChangeStatus={(status) => handleChangeStatus(dossierDoc.id, status)}
+            availableUsers={users}
+            onAssignUser={async (docId, userId) => {
+                if (!token) return;
+                try {
+                    await assignDocument(token, docId, userId || null);
+                    const updated = await fetchDocument(token, docId);
+                    setDossierDoc(updated);
+                    setDocuments(prev => prev.map(d => d.id === updated.id ? updated : d));
+                    addToast('Responsable actualizado', 'success');
+                } catch (e) {
+                    addToast('Error asignando responsable', 'error');
+                }
+            }}
         />;
     }
 
     if (isEditorOpen) {
+        console.log("App.tsx: Rendering DocumentEditor (isEditorOpen=true)");
         return (
-            <DocumentEditor 
-                activeProject={activeProject}
-                replyToDoc={replyToDoc}
-                existingDoc={editorDoc}
-                userRole={currentUser.role === 'SUPER_ADMIN' ? 'DIRECTOR' : currentUser.role as any}
-                onCancel={() => {
-                    setIsEditorOpen(false);
-                    setEditorDoc(null);
-                    setReplyToDoc(null);
-                }}
-                onSave={handleSaveDocument}
-                onDeleteAttachment={(attId) => editorDoc?.id && handleDeleteAttachment(editorDoc.id, attId)}
-                apiBaseUrl={API_URL}
-                forceReadOnly={!!editorDoc && (editorDoc.status === DocumentStatus.PENDING_SCAN || editorDoc.status === DocumentStatus.ARCHIVED || editorDoc.status === DocumentStatus.VOID)}
-            />
+            <div className="fixed inset-0 z-50 bg-white">
+                <DocumentEditor 
+                    key="document-editor"
+                    activeProject={activeProject}
+                    replyToDoc={replyToDoc}
+                    existingDoc={editorDoc}
+                    userRole={currentUser.role === 'SUPER_ADMIN' ? 'DIRECTOR' : currentUser.role as any}
+                    token={token || undefined} // Pass token
+                    onCancel={() => {
+                        setIsEditorOpen(false);
+                        setEditorDoc(null);
+                        setReplyToDoc(null);
+                    }}
+                    onSave={handleSaveDocument}
+                    onDeleteAttachment={(attId) => editorDoc?.id && handleDeleteAttachment(editorDoc.id, attId)}
+                    apiBaseUrl={API_URL}
+                    forceReadOnly={!!editorDoc && (editorDoc.status === DocumentStatus.PENDING_SCAN || editorDoc.status === DocumentStatus.ARCHIVED || editorDoc.status === DocumentStatus.VOID)}
+                    onDocumentUpdated={(updatedDoc) => {
+                        setDocuments(docs => {
+                            const exists = docs.some(d => d.id === updatedDoc.id);
+                            return exists ? docs.map(d => d.id === updatedDoc.id ? updatedDoc : d) : [updatedDoc, ...docs];
+                        });
+                        if (editorDoc?.id === updatedDoc.id) {
+                            setEditorDoc(updatedDoc);
+                        }
+                    }}
+                />
+            </div>
         );
     }
     
@@ -525,6 +594,25 @@ const App: React.FC = () => {
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                         Radicar Entrada
                      </button>
+                     <button 
+                        onClick={() => {
+                            setShowAssignedToMe(!showAssignedToMe);
+                            setShowAttentionList(false);
+                            setShowTransferReady(false);
+                        }}
+                        disabled={!activeProject}
+                        className={`flex items-center gap-2 px-5 py-3 min-w-[180px] max-w-[200px] justify-center rounded-lg shadow-md transition-all font-semibold text-sm relative ${showAssignedToMe ? 'bg-purple-600 hover:bg-purple-700 text-white border border-purple-700/40' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}
+                     >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                        {showAssignedToMe ? 'Ver Todos' : 'Asignados a Mí'}
+                        
+                        {/* Assigned Count Badge */}
+                        {projectDocuments.filter(d => d.assignedToUser?.id === currentUser.id).length > 0 && (
+                            <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${showAssignedToMe ? 'bg-white text-purple-700' : 'bg-purple-100 text-purple-700'}`}>
+                                {projectDocuments.filter(d => d.assignedToUser?.id === currentUser.id).length}
+                            </span>
+                        )}
+                     </button>
                    </div>
                  </div>
 
@@ -547,8 +635,19 @@ const App: React.FC = () => {
                     }}
                  />
 
+                 {/* DEBUG LOGS */}
+                 {console.log('Current User ID:', currentUser.id)}
+                 {console.log('Show Assigned To Me:', showAssignedToMe)}
+                 {console.log('Documents with Assignment:', projectDocuments.filter(d => d.assignedToUser).map(d => ({ id: d.id, assignedTo: d.assignedToUser })))}
+
                  <DocumentList 
-                    documents={projectDocuments}
+                    documents={showAssignedToMe 
+                        ? projectDocuments.filter(d => {
+                            const isAssigned = d.assignedToUser?.id === currentUser.id;
+                            console.log(`Doc ${d.radicadoCode} assigned to ${d.assignedToUser?.id} vs Me ${currentUser.id} -> ${isAssigned}`);
+                            return isAssigned;
+                        }) 
+                        : projectDocuments}
                     userRole={currentUser.role === 'SUPER_ADMIN' ? 'DIRECTOR' : currentUser.role as any}
                     attentionFilter={showAttentionList}
                     onClearAttentionFilter={() => setShowAttentionList(false)}
@@ -597,13 +696,20 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
        <Navbar 
          currentUser={currentUser}
+         token={token || ''}
          projects={projects}
          activeProjectId={activeProjectId}
          onSelectProject={setActiveProjectId}
          onToggleSchema={() => {}}
-         onNavigate={setCurrentView}
+         onNavigate={(view) => {
+             setCurrentView(view);
+             setDossierDoc(null);
+             setSignedDocView(null);
+             setIsInboundRegistering(false);
+             setIsEditorOpen(false);
+         }}
          currentView={currentView}
-         onLogout={handleLogout}
+         onLogout={() => handleLogout()}
        />
 
        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 min-h-screen">
@@ -633,4 +739,10 @@ const App: React.FC = () => {
   );
 };
 
-export default App;
+export default function WrappedApp() {
+  return (
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  );
+}

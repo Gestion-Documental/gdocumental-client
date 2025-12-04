@@ -68,6 +68,7 @@ model User {
   // Relations
   workflows      Workflow[]
   documents      Document[]  @relation("DocumentAuthors")
+  assignedDocuments Document[] @relation("DocumentAssignees")
   userSignatures UserSignature[]
   projectRoles   ProjectRole[]
   appRoles       AppRole[]
@@ -140,6 +141,7 @@ model Document {
   status            DocumentStatus   @default(DRAFT)
   title             String
   content           String?          @db.LongText
+  contentUrl        String?          // URL/Path to the .docx file
   retentionDate     DateTime?
   isPhysicalOriginal Boolean         @default(false)
   metadata          Json
@@ -150,6 +152,9 @@ model Document {
 
   authorId          String?
   author            User?            @relation("DocumentAuthors", fields: [authorId], references: [id], onDelete: SetNull)
+
+  assignedToUserId  String?
+  assignedToUser    User?            @relation("DocumentAssignees", fields: [assignedToUserId], references: [id], onDelete: SetNull)
 
   physicalLocationId String?
   physicalLocation   PhysicalArchive? @relation(fields: [physicalLocationId], references: [id], onDelete: SetNull)
@@ -163,6 +168,7 @@ model Document {
 
   @@index([projectId, series, status])
   @@index([physicalLocationId])
+  @@index([assignedToUserId])
 }
 
 model Workflow {

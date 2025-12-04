@@ -11,6 +11,8 @@ interface ContactSelectorProps {
   disabled?: boolean;
   label?: string;
   onKeyDown?: (e: React.KeyboardEvent) => void;
+  allowManual?: boolean;
+  onManualAdd?: (value: string) => void;
 }
 
 const ContactSelector: React.FC<ContactSelectorProps> = ({ 
@@ -20,7 +22,9 @@ const ContactSelector: React.FC<ContactSelectorProps> = ({
   placeholder = "Escriba o Seleccione...", 
   disabled = false,
   label = "Nombre Entidad / Empresa",
-  onKeyDown
+  onKeyDown,
+  allowManual,
+  onManualAdd
 }) => {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -77,7 +81,21 @@ const ContactSelector: React.FC<ContactSelectorProps> = ({
         {showSuggestions && !disabled && (
             <div className="absolute top-full left-0 w-full bg-white border border-slate-200 rounded-lg shadow-xl z-50 mt-1 max-h-60 overflow-y-auto animate-fade-in">
                 {filteredContacts.length === 0 ? (
-                        <div className="px-4 py-3 text-sm text-slate-400 italic">No se encontraron coincidencias.</div>
+                        <div className="px-4 py-3 text-sm text-slate-400 italic">
+                            No se encontraron coincidencias.
+                            {allowManual && value && (
+                                <button 
+                                    onMouseDown={(e) => { 
+                                        e.preventDefault(); 
+                                        if (onManualAdd) onManualAdd(value); 
+                                        setShowSuggestions(false); 
+                                    }}
+                                    className="mt-2 text-blue-600 font-bold hover:underline block text-xs"
+                                >
+                                    + Agregar "{value}" Manualmente
+                                </button>
+                            )}
+                        </div>
                 ) : (
                     <>
                         <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">

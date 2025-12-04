@@ -10,7 +10,7 @@ export class LocalFileStorage implements IFileStorage {
     const dir = BASE_DIR;
     await fs.promises.mkdir(dir, { recursive: true });
 
-    const safeName = `${Date.now()}-${params.filename.replace(/\s+/g, '_')}`;
+    const safeName = `${Date.now()}-${params.filename.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
     const filePath = path.join(dir, safeName);
     await fs.promises.writeFile(filePath, params.buffer);
 

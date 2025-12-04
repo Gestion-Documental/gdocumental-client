@@ -9,10 +9,12 @@ interface UserProfileProps {
   user: User;
   token: string;
   onBack: () => void;
+  onUpdate: (user: User) => void;
 }
 
-const UserProfile: React.FC<UserProfileProps> = ({ user, token, onBack }) => {
-  const [pin, setPin] = useState(user.securityPin || '');
+const UserProfile: React.FC<UserProfileProps> = ({ user, token, onBack, onUpdate }) => {
+  const [pin, setPin] = useState(''); // New PIN (empty by default to avoid confusion)
+  const [currentPin, setCurrentPin] = useState('');
   const [signature, setSignature] = useState(user.signatureUrl || '');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { addToast } = useToast();
@@ -20,15 +22,51 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, token, onBack }) => {
   // Mock states for form
   const [isSaved, setIsSaved] = useState(false);
 
+  // Sync state with props if user changes (e.g. re-fetch)
+  React.useEffect(() => {
+      // We don't pre-fill PINs for security/UX when changing
+      setPin(''); 
+      setCurrentPin('');
+      const rawSig = user.signatureUrl || '';
+      const resolvedSig = rawSig.startsWith('/uploads') ? `${API_URL}${rawSig}` : rawSig;
+      setSignature(resolvedSig);
+  }, [user]);
+
   const handleSave = async () => {
+      if (pin && (pin.length !== 4 || !/^\d+$/.test(pin))) {
+          return addToast('El nuevo PIN debe ser de 4 dígitos numéricos', 'error');
+      }
+      
+      // If user has a PIN, they must provide current PIN to change it
+      if (user.securityPin && pin && !currentPin) {
+          return addToast('Debe ingresar su PIN actual para cambiarlo', 'error');
+      }
+
+      // If no changes
+      if (!pin && !signature) return;
+
       try {
-        await uploadSignature(token, undefined, pin);
+        const { user: updated } = await uploadSignature(token, undefined, pin || undefined, currentPin);
+        // Update local state to match server response
+        if (updated.signatureUrl) setSignature(updated.signatureUrl);
+        
+        // Notify parent to update global user state
+        onUpdate({
+            ...user,
+            ...updated,
+            signatureUrl: updated.signatureImage,
+            securityPin: updated.signaturePin
+        });
+
         addToast('Perfil actualizado', 'success');
+        setIsSaved(true);
+        setTimeout(() => setIsSaved(false), 2000);
+        // Clear inputs
+        setPin('');
+        setCurrentPin('');
       } catch (e: any) {
         addToast(e.message || 'No se pudo guardar el perfil', 'error');
       }
-      setIsSaved(true);
-      setTimeout(() => setIsSaved(false), 2000);
   };
 
   const handleDropSignature = async (e: React.DragEvent<HTMLDivElement>) => {
@@ -42,13 +80,29 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, token, onBack }) => {
         if (!file.type.includes('png')) {
           return addToast('Solo se permite PNG transparente para la firma', 'error');
         }
+        // Optimistic preview
+        const objectUrl = URL.createObjectURL(file);
+        setSignature(objectUrl);
+
         const { user: updated } = await uploadSignature(token, file, pin);
-        const url = updated.signatureImage || URL.createObjectURL(file);
-        const finalUrl = url.startsWith('/uploads') ? `${API_URL}${url}` : url;
-        setSignature(finalUrl);
+        
+        // Update with real URL from server
+        const finalUrl = updated.signatureImage || objectUrl;
+        const resolvedUrl = finalUrl.startsWith('/uploads') ? `${API_URL}${finalUrl}` : finalUrl;
+        setSignature(resolvedUrl);
+        
+        onUpdate({
+            ...user,
+            ...updated,
+            signatureUrl: updated.signatureImage,
+            securityPin: updated.signaturePin
+        });
+
         addToast('Firma actualizada', 'success');
       } catch (e: any) {
         addToast(e.message || 'No se pudo subir la firma', 'error');
+        // Revert to original if failed
+        setSignature(user.signatureUrl || '');
       }
   };
 
@@ -70,7 +124,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, token, onBack }) => {
                         <h1 className="text-2xl font-bold">{user.fullName}</h1>
                         <p className="text-blue-200">{user.email}</p>
                         <span className="inline-block mt-2 bg-blue-600 text-xs px-3 py-1 rounded-full font-bold uppercase tracking-wider">
-                            {user.role.replace('_', ' ')}
+                            {(user.role || 'USER').replace('_', ' ')}
                         </span>
                     </div>
                 </div>
@@ -121,16 +175,34 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, token, onBack }) => {
                         <h2 className="text-lg font-bold text-slate-800 mb-1 border-b pb-2 border-slate-100">PIN de Seguridad</h2>
                         <p className="text-sm text-slate-500 mb-4">Código de 4 dígitos requerido para confirmar operaciones sensibles (Firma y Radicación).</p>
                         
-                        <div className="max-w-xs">
-                            <label className="block text-xs font-bold text-slate-700 mb-2">Nuevo PIN</label>
-                            <input 
-                                type="password" 
-                                maxLength={12}
-                                value={pin}
-                                onChange={(e) => setPin(e.target.value)}
-                                className="w-full border border-slate-300 rounded-lg p-3 text-center font-mono text-xl tracking-[0.5em] focus:ring-2 focus:ring-blue-500 outline-none"
-                                placeholder="••••"
-                            />
+                        <div className="flex gap-6">
+                            {user.securityPin && (
+                                <div className="max-w-xs">
+                                    <label className="block text-xs font-bold text-slate-700 mb-2">PIN Actual</label>
+                                    <input 
+                                        type="password" 
+                                        maxLength={4}
+                                        value={currentPin}
+                                        onChange={(e) => setCurrentPin(e.target.value)}
+                                        className="w-full border border-slate-300 rounded-lg p-3 text-center font-mono text-xl tracking-[0.5em] focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="••••"
+                                    />
+                                </div>
+                            )}
+                            
+                            <div className="max-w-xs">
+                                <label className="block text-xs font-bold text-slate-700 mb-2">
+                                    {user.securityPin ? 'Nuevo PIN' : 'Crear PIN'}
+                                </label>
+                                <input 
+                                    type="password" 
+                                    maxLength={4}
+                                    value={pin}
+                                    onChange={(e) => setPin(e.target.value)}
+                                    className="w-full border border-slate-300 rounded-lg p-3 text-center font-mono text-xl tracking-[0.5em] focus:ring-2 focus:ring-blue-500 outline-none"
+                                    placeholder="••••"
+                                />
+                            </div>
                         </div>
                     </section>
 

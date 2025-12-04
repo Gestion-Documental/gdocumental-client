@@ -145,7 +145,11 @@ const InboundRegistration: React.FC<InboundRegistrationProps> = ({ activeProject
                     <div className="w-full h-full bg-white shadow-2xl rounded p-4 overflow-hidden relative group flex flex-col items-center justify-center">
                         {/* Preview Logic */}
                         {previewUrl ? (
-                             <img src={previewUrl} alt="Preview" className="max-w-full max-h-full object-contain opacity-80" />
+                             (file?.type === 'application/pdf' || file?.name.toLowerCase().endsWith('.pdf')) ? (
+                                <iframe src={previewUrl} className="w-full h-full border-none" title="PDF Preview"></iframe>
+                             ) : (
+                                <img src={previewUrl} alt="Preview" className="max-w-full max-h-full object-contain opacity-80" />
+                             )
                         ) : (
                             <div className="text-center p-10">
                                 <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 text-blue-600">

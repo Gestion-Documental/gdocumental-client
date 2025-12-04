@@ -195,7 +195,11 @@ const SignatureModal: React.FC<SignatureModalProps> = ({ document, user, onClose
                           {hasSavedSignature ? (
                               <div className="w-full max-w-sm border border-slate-200 rounded-lg p-4 bg-slate-50 flex flex-col items-center">
                                   <span className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Vista Previa</span>
-                                  <img src={user.signatureUrl} alt="Saved Signature" className="h-20 opacity-80" />
+                                  <img 
+                                    src={user.signatureUrl?.startsWith('http') ? user.signatureUrl : `http://localhost:4000${user.signatureUrl}`} 
+                                    alt="Saved Signature" 
+                                    className="h-20 opacity-80" 
+                                  />
                               </div>
                           ) : (
                               <div className="text-center text-red-500 text-sm border border-red-200 bg-red-50 p-4 rounded-lg">

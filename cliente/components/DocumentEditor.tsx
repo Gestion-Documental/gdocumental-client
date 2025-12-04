@@ -1,12 +1,13 @@
 
-
 import React, { useState, useEffect, useRef } from 'react';
-import { DocumentType, DocumentTemplate, Project, Document, DocumentStatus, Comment, Attachment, SeriesType, UserRole, TRDEntry } from '../types';
+import { DocumentType, DocumentTemplate, Project, Document, DocumentStatus, Comment, Attachment, SeriesType, UserRole, TRDEntry, SignatureMethod } from '../types';
 import { MOCK_CONTACTS } from '../services/mockData';
-import CommentSection from './CommentSection';
+import { previewDocument } from '../services/api';
+
 import FileAttachments from './FileAttachments';
 import ContactSelector from './ContactSelector';
 import { sanitizeHtml } from '../utils/sanitize';
+import DOMPurify from 'dompurify';
 import tinymce from 'tinymce/tinymce';
 import 'tinymce/icons/default';
 import 'tinymce/themes/silver';
@@ -42,9 +43,20 @@ if (typeof window !== 'undefined') {
   (window as any).tinymce = tinymce;
 }
 
+type PageSize = 'A4' | 'LETTER' | 'LEGAL';
+
+const PAGE_SIZES: Record<PageSize, { width: string; height: string; heightMm: number; label: string; bodyWidth: string }> = {
+    A4: { width: '210mm', height: '297mm', heightMm: 297, label: 'A4 (210x297mm)', bodyWidth: '170mm' },
+    LETTER: { width: '216mm', height: '279mm', heightMm: 279, label: 'Carta (216x279mm)', bodyWidth: '176mm' },
+    LEGAL: { width: '216mm', height: '356mm', heightMm: 356, label: 'Oficio (216x356mm)', bodyWidth: '176mm' }
+};
+
 // Moved outside to avoid type errors and recreation on render
-const PaperContainer = ({ children, className = "" }: { children?: React.ReactNode, className?: string }) => (
-  <div className={`bg-white w-full max-w-[210mm] min-h-[297mm] mx-auto shadow-[0_15px_45px_rgba(0,0,0,0.15)] text-slate-900 relative transition-all duration-500 rounded-sm outline outline-[0.5px] outline-slate-200 ${className}`}>
+const PaperContainer = ({ children, className = "", style = {} }: { children?: React.ReactNode, className?: string, style?: React.CSSProperties }) => (
+  <div 
+    className={`bg-slate-100 mx-auto text-slate-900 relative transition-all duration-500 rounded-sm ${className}`}
+    style={style}
+  >
       {children}
   </div>
 );
@@ -72,6 +84,8 @@ interface DocumentEditorProps {
   onDeleteAttachment?: (attachmentId: string) => void;
   apiBaseUrl?: string;
   forceReadOnly?: boolean;
+  token?: string; // Add token prop
+  onDocumentUpdated?: (doc: Document) => void;
 }
 
 const normalizeAttachments = (doc?: Document | null): Attachment[] => {
@@ -86,14 +100,58 @@ const normalizeAttachments = (doc?: Document | null): Attachment[] => {
   return doc.metadata?.attachments || [];
 };
 
-const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToDoc, existingDoc, userRole, onCancel, onSave, onDeleteAttachment, apiBaseUrl, forceReadOnly }) => {
+
+// ... (existing imports)
+
+import OnlyOfficeEditor, { OnlyOfficeEditorRef } from './OnlyOfficeEditor';
+
+const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToDoc, existingDoc, userRole, onCancel, onSave, onDeleteAttachment, apiBaseUrl, forceReadOnly, token, onDocumentUpdated }) => {
+
   const { addToast } = useToast();
+  const editorRef = useRef<OnlyOfficeEditorRef>(null);
+  
+  // Local Active Doc State (to handle Wizard creation)
+  const [activeDoc, setActiveDoc] = useState<Document | null>(existingDoc);
+
+  // Sync prop changes
+  useEffect(() => {
+      if (existingDoc) setActiveDoc(existingDoc);
+  }, [existingDoc]);
+
+  // Sync state when activeDoc changes (e.g. after Wizard creation)
+  useEffect(() => {
+      if (activeDoc) {
+          setTitle(activeDoc.title);
+          setSeries(activeDoc.series);
+          setTrdCode(activeDoc.metadata?.trdCode || '');
+          setRecipientName(activeDoc.metadata?.recipientName || '');
+          setRecipientRole(activeDoc.metadata?.recipientRole || '');
+          setRecipientCompany(activeDoc.metadata?.recipientCompany || '');
+          setRecipientAddress(activeDoc.metadata?.recipientAddress || '');
+      }
+  }, [activeDoc]);
+
   // New Series State
   const [series, setSeries] = useState<SeriesType>(existingDoc?.series || 'ADM');
-  const [docType, setDocType] = useState<DocumentType>(existingDoc?.type || DocumentType.OUTBOUND);
+  const [isMetadataOpen, setIsMetadataOpen] = useState(true); // Open by default for new docs
+  const [showRadicationModal, setShowRadicationModal] = useState(false);
+  const [signaturePin, setSignaturePin] = useState('');
+  const [isWizardOpen, setIsWizardOpen] = useState(!existingDoc); // Open wizard if new doc
+
+
+  // ... (existing state)
+  
+  // Nutrient Toggle
+
+
+  // ... (rest of the component)
+  const [docType, setDocType] = useState(existingDoc?.type || DocumentType.OUTBOUND);
   const [template, setTemplate] = useState<DocumentTemplate>(existingDoc?.metadata?.template || DocumentTemplate.FORMAL_LETTER);
   const [title, setTitle] = useState(existingDoc?.title || '');
   
+  // Page Size State
+  const [pageSize, setPageSize] = useState<PageSize>((existingDoc?.metadata?.pageSize as PageSize) || 'A4');
+
   // TRD Logic
   const [trdCode, setTrdCode] = useState<string>(existingDoc?.metadata?.trdCode || '');
   
@@ -250,17 +308,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
 
   const updateEditorContent = (html: string) => {
       setContent(html);
-      if (window.tinymce && window.tinymce.get(editorId)) {
-          const editor = window.tinymce.get(editorId);
-          if (editor.getContent() !== html) {
-             editor.setContent(html);
-          }
-      }
-      if (fallbackRef.current) {
-          if (fallbackRef.current.innerHTML !== html) {
-              fallbackRef.current.innerHTML = html;
-          }
-      }
+      // TinyMCE update logic removed
   };
 
   const handleManualEdit = (newContent: string) => {
@@ -304,83 +352,12 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
       }
   };
 
-  useEffect(() => {
-    if (isPreviewMode) return;
+  // Update TinyMCE styles when pageSize changes
+  // Page Size Effect Removed
 
-    if (typeof window.tinymce === 'undefined' || document.compatMode === 'BackCompat') {
-        setUseFallback(true);
-        setEditorReady(true);
-        return;
-    }
 
-    try {
-        if (window.tinymce.get(editorId)) {
-            window.tinymce.remove(`#${editorId}`);
-        }
+  // TinyMCE Init Effect Removed
 
-        window.tinymce.init({
-            selector: `#${editorId}`,
-            height: 860,
-            menubar: 'file edit view insert format tools table help',
-            statusbar: true,
-            skin: 'oxide',
-            icons: 'default',
-            resize: false,
-            readonly: isReadOnly ? 1 : 0, 
-            toolbar_sticky: true,
-            toolbar_sticky_offset: 65,
-            plugins: [
-            'advlist', 'autolink', 'lists', 'link', 'image', 'charmap', 'preview',
-            'anchor', 'searchreplace', 'visualblocks', 'code', 'fullscreen',
-            'insertdatetime', 'media', 'table', 'code', 'help', 'wordcount'
-            ],
-            toolbar: isReadOnly ? false : 'undo redo | blocks fontfamily fontsize | bold italic underline forecolor backcolor | ' +
-            'alignleft aligncenter alignright alignjustify | lineheight | bullist numlist outdent indent | ' +
-            'table | removeformat | preview',
-            font_family_formats: "Calibri=Calibri,Segoe UI,sans-serif;Times New Roman=Times New Roman,serif;Arial=Arial,Helvetica,sans-serif;Courier New=Courier New,monospace",
-            font_size_formats: "10pt 11pt 12pt 14pt 16pt",
-            line_height_formats: "1 1.15 1.5 2",
-            content_style: `
-            body {
-                font-family: 'Calibri', 'Segoe UI', sans-serif;
-                font-size: 11pt;
-                color: #1f2937;
-                line-height: 1.5;
-                max-width: 170mm;
-                margin: 0 auto;
-                padding: 25mm 25mm 30mm 25mm;
-                background: #fff;
-            }
-            p { margin: 0 0 12pt 0; }
-            h1,h2,h3,h4 { font-family: 'Calibri', 'Segoe UI', sans-serif; margin: 12pt 0 6pt 0; }
-            table { border-collapse: collapse; width: 100%; }
-            td, th { padding: 4px; }
-            `,
-            setup: (editor: any) => {
-                editor.on('Init', () => {
-                    setEditorReady(true);
-                    if (content) editor.setContent(content);
-                });
-                editor.on('Change KeyUp Input', () => {
-                    handleManualEdit(editor.getContent());
-                });
-            }
-        }).catch((err: any) => {
-            setUseFallback(true);
-            setEditorReady(true);
-        });
-    } catch (e) {
-        setUseFallback(true);
-        setEditorReady(true);
-    }
-
-    return () => {
-      if (window.tinymce) {
-        try { window.tinymce.remove(`#${editorId}`); } catch(e) {}
-        setEditorReady(false);
-      }
-    };
-  }, [isPreviewMode, isReadOnly]);
   
   const handleAddComment = (text: string) => {
       const newComment: Comment = {
@@ -439,41 +416,151 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
      handleSave({ shouldFinalize: true, customComments: commentsToSend });
   };
 
-  const handleSave = (options: { shouldFinalize?: boolean, forceStatus?: DocumentStatus, customComments?: Comment[] }) => {
-    let finalContent = content;
-    if (!useFallback && window.tinymce && window.tinymce.get(editorId)) {
-       finalContent = window.tinymce.get(editorId).getContent();
-    } else if (useFallback && fallbackRef.current) {
-       finalContent = fallbackRef.current.innerHTML;
-    }
+  // Nutrient Toggle
+  // Nutrient Toggle Removed - OnlyOffice is now default
 
-    onSave({
-      series, // Passed to save logic
-      type: docType,
-      title,
-      content: finalContent,
-      shouldFinalize: options.shouldFinalize,
-      forceStatus: options.forceStatus,
-      metadata: {
-        template,
-        trdCode, // SAVE TRD CODE
+
+  // ... (rest of the component)
+
+  const handleSave = async (options: { shouldFinalize?: boolean, forceStatus?: DocumentStatus, customComments?: Comment[], file?: File }) => {
+    const nextStatus = options.forceStatus || currentStatus;
+    
+    // Prepare Metadata
+    const metadataToSave = {
+        ...existingDoc?.metadata,
+        recipientCompany,
         recipientName,
         recipientRole,
-        recipientCompany,
         recipientAddress,
-        comments: options.customComments || comments,
-        attachments,
-        ccList, // Save Copies
-        documentDate: new Date().toISOString(),
-        requiresResponse: !!trdCode || docType === DocumentType.INBOUND,
+        ccList,
+        template,
+        pageSize,
+        trdCode,
+        requiresResponse: trdOptions.find(t => t.code === trdCode)?.responseDays ? true : false,
+        deadline: trdOptions.find(t => t.code === trdCode)?.responseDays 
+            ? new Date(Date.now() + (trdOptions.find(t => t.code === trdCode)?.responseDays || 15) * 86400000).toISOString() 
+            : null,
+        securityHash: `${Date.now()}-${Math.random().toString(36).substring(7)}` // Simple hash simulation
+    };
+
+    const formData = new FormData();
+    formData.append('title', title);
+    formData.append('series', series);
+    formData.append('metadata', JSON.stringify(metadataToSave));
+    
+    // For OnlyOffice, we don't save HTML content to the 'content' field anymore, 
+    // or we could save a placeholder. The real content is in the .docx file.
+    formData.append('content', ''); 
+    
+    if (options.file) {
+        formData.append('file', options.file);
+    }
+
+    if (options.shouldFinalize) {
+        // Logic for finalize (status update) is handled via separate endpoint usually or we can bundle it?
+        // The backend PUT /:id updates content. Status update is POST /:id/status.
+        // We might need to chain calls.
+    }
+
+    try {
+        let savedDoc;
+        if (existingDoc?.id) {
+            // Update existing
+            const res = await fetch(`${apiBaseUrl}/documents/${existingDoc.id}`, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                    // 'Content-Type': 'multipart/form-data', // Browser sets this automatically with boundary
+                },
+                body: formData
+            });
+            if (!res.ok) throw new Error('Error al guardar');
+            savedDoc = await res.json();
+            
+            // If status change needed
+            if (nextStatus !== currentStatus) {
+                 const res = await fetch(`${apiBaseUrl}/documents/${existingDoc.id}/status`, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ status: nextStatus })
+                });
+                savedDoc.status = nextStatus;
+            }
+
+        } else {
+            // Create new
+            // Need to append projectId, type, etc.
+            formData.append('projectId', activeProject.id);
+            formData.append('type', docType);
+            
+            const res = await fetch(`${apiBaseUrl}/documents/create`, { // Need to check if create supports FormData
+                method: 'POST',
+                body: formData
+            });
+             if (!res.ok) throw new Error('Error al crear');
+            savedDoc = await res.json();
+        }
+
+        addToast('Documento guardado exitosamente', 'success');
+        if (onSave) onSave(savedDoc);
+    } catch (error) {
+        console.error(error);
+        addToast('Error al guardar el documento', 'error');
+    }
+  };
+
+
+
+
+  const handleSign = async (method: SignatureMethod, signatureImage?: string) => {
+      if (!signaturePin) {
+          addToast('Ingrese su PIN de firma', 'error');
+          return;
       }
-    });
+
+      // Force save before signing
+      if (editorRef.current) {
+          addToast('Guardando cambios antes de firmar...', 'info');
+          editorRef.current.forceSave();
+          // Wait longer for the save to propagate to the server (4s)
+          await new Promise(resolve => setTimeout(resolve, 4000));
+      }
+
+      try {
+          const res = await fetch(`${apiBaseUrl}/documents/sign`, {
+              method: 'POST',
+              headers: { 
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({ documentId: existingDoc?.id, signaturePin, signatureMethod: method, signatureImage })
+          });
+          if (!res.ok) {
+              const err = await res.json();
+              throw new Error(err.error || 'Error al firmar');
+          }
+          const data = await res.json();
+          addToast(`Documento Radicado: ${data.radicadoCode}`, 'success');
+          setShowRadicationModal(false);
+          if (onSave) onSave({ ...existingDoc, status: data.status, radicadoCode: data.radicadoCode });
+          onCancel(); // Close editor
+      } catch (error: any) {
+          addToast(error.message, 'error');
+      }
   };
 
   const execCmd = (command: string, value: string | undefined = undefined) => {
     document.execCommand(command, false, value);
     if (fallbackRef.current) fallbackRef.current.focus();
   };
+
+  useEffect(() => {
+    console.log("DocumentEditor MOUNTED");
+    return () => console.log("DocumentEditor UNMOUNTED");
+  }, []);
 
   const openPreview = () => {
     let html = content;
@@ -490,304 +577,366 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
     setIsPreviewMode(false);
   };
 
+  const handleOnlyOfficeError = React.useCallback((errorCode: number, errorDescription: string) => {
+    console.error('OnlyOffice Load Error:', errorCode, errorDescription);
+    addToast(`Error cargando editor: ${errorDescription}`, 'error');
+  }, [addToast]);
+
+  const onlyOfficeConfig = React.useMemo(() => {
+    const doc = activeDoc || existingDoc;
+    const cfg = {
+        document: {
+            fileType: "docx",
+            key: doc ? `${doc.id}-${new Date(doc.updatedAt || Date.now()).getTime()}` : `new-${Date.now()}`,
+            title: doc ? `${doc.title}.docx` : "Nuevo Documento.docx",
+            url: doc?.contentUrl 
+                ? `http://host.docker.internal:4000${doc.contentUrl}` 
+                : undefined, // NO FALLBACK to template.docx
+        },
+        documentType: "word",
+        editorConfig: {
+            callbackUrl: "http://host.docker.internal:4000/onlyoffice/callback",
+            user: {
+                id: "1", 
+                name: "User" 
+            }
+        },
+    };
+    console.log("OnlyOffice Config:", cfg, "Doc:", doc);
+    return cfg;
+  }, [activeDoc, existingDoc]);
+
+  // ... (previous code)
+
+  // Unified Layout State
+  // Unified Layout State
+  // Moved to top
+
+  // ... (existing state)
+
+  // REMOVED: isWizardOpen logic
+  // REMOVED: isSidebarOpen (right sidebar)
+
+  // ... (handlers)
+
+  const handleCreateOrUpdate = async () => {
+      if (!title || !series) {
+          addToast('Complete los campos obligatorios', 'error');
+          return;
+      }
+      try {
+          const payload = {
+              projectId: activeProject.id,
+              type: docType,
+              series,
+              title,
+              metadata: {
+                  trdCode,
+                  recipientName,
+                  recipientRole,
+                  recipientCompany,
+                  recipientAddress,
+                  ccList
+              }
+          };
+
+          let newDoc;
+          if (existingDoc?.id) {
+              // Update existing
+               const formData = new FormData();
+               formData.append('title', title);
+               formData.append('series', series);
+               formData.append('metadata', JSON.stringify(payload.metadata));
+               formData.append('content', ''); // No content update here
+
+               const res = await fetch(`${apiBaseUrl}/documents/${existingDoc.id}`, {
+                  method: 'PUT',
+                  headers: { 'Authorization': `Bearer ${token}` },
+                  body: formData
+               });
+               if (!res.ok) throw new Error('Error actualizando metadatos');
+               newDoc = await res.json();
+               addToast('Metadatos actualizados', 'success');
+               if (onDocumentUpdated) onDocumentUpdated(newDoc);
+
+          } else {
+              // Create New
+              const res = await fetch(`${apiBaseUrl}/documents/create`, {
+                  method: 'POST',
+                  headers: { 
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${token}`
+                  },
+                  body: JSON.stringify(payload)
+              });
+              if (!res.ok) throw new Error('Error creando documento');
+              newDoc = await res.json();
+              setActiveDoc(newDoc);
+              addToast('Documento generado', 'success');
+              setIsMetadataOpen(false); // Auto-collapse after generation to focus on editor
+              if (onDocumentUpdated) onDocumentUpdated(newDoc);
+          }
+      } catch (e) {
+          console.error(e);
+          addToast('Error al procesar documento', 'error');
+      }
+  };
+
+  const handlePreview = async () => {
+      if (!activeDoc?.id || !token) {
+          addToast('Guarde el documento primero', 'warning');
+          return;
+      }
+      try {
+          addToast('Generando vista previa...', 'info');
+          // Force save first to ensure latest metadata
+          await handleCreateOrUpdate();
+          
+          const blob = await previewDocument(token, activeDoc.id);
+          const url = URL.createObjectURL(blob);
+          window.open(url, '_blank');
+      } catch (e: any) {
+          addToast(e.message || 'Error generando vista previa', 'error');
+      }
+  };
+
   return (
     <div className="flex flex-row h-full gap-0 bg-slate-100 rounded-xl overflow-hidden border border-slate-200 shadow-inner animate-fade-in relative">
       
-      <div className="flex-1 flex flex-col h-full relative border-r border-slate-200 overflow-hidden">
+      {/* LEFT SIDEBAR: METADATA & CONFIG */}
+      <div className={`${isMetadataOpen ? 'w-80' : 'w-0'} transition-all duration-300 bg-white border-r border-slate-200 flex flex-col overflow-hidden relative z-20`}>
+          <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center min-w-[320px]">
+              <h3 className="font-bold text-slate-700">Configuración</h3>
+              <button onClick={() => setIsMetadataOpen(false)} className="text-slate-400 hover:text-slate-600">
+                  ✕
+              </button>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-6 min-w-[320px]">
+              {/* SERIES */}
+              <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Serie Documental</label>
+                  <div className="flex bg-slate-100 p-1 rounded-lg">
+                      <button 
+                          onClick={() => setSeries('ADM')}
+                          className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${series === 'ADM' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                      >
+                          ADM
+                      </button>
+                      <button 
+                          onClick={() => setSeries('TEC')}
+                          className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${series === 'TEC' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                      >
+                          TEC
+                      </button>
+                  </div>
+              </div>
+
+              {/* TRD */}
+              <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Código TRD</label>
+                  <select 
+                      value={trdCode}
+                      onChange={(e) => setTrdCode(e.target.value)}
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 outline-none bg-white"
+                  >
+                      <option value="">Seleccione...</option>
+                      {trdOptions.map(t => (
+                          <option key={t.code} value={t.code}>{t.code} - {t.seriesName}</option>
+                      ))}
+                  </select>
+              </div>
+
+              {/* TITLE */}
+              <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Asunto / Título</label>
+                  <textarea 
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 outline-none resize-none h-20"
+                      placeholder="Ej: Respuesta a solicitud..."
+                  />
+              </div>
+
+              {/* RECIPIENT */}
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-3 flex justify-between items-center">
+                      Destinatario
+                      <ContactSelector 
+                          value=""
+                          onChange={() => {}}
+                          onSelect={(contact) => {
+                              setRecipientName(contact.attention);
+                              setRecipientRole(contact.position);
+                              setRecipientCompany(contact.entityName);
+                              setRecipientAddress(contact.address);
+                          }}
+                          minimal
+                      />
+                  </label>
+                  
+                  <div className="space-y-2">
+                      <input placeholder="Nombre" value={recipientName} onChange={e => setRecipientName(e.target.value)} className="w-full border border-slate-300 rounded px-2 py-1.5 text-xs" />
+                      <input placeholder="Cargo" value={recipientRole} onChange={e => setRecipientRole(e.target.value)} className="w-full border border-slate-300 rounded px-2 py-1.5 text-xs" />
+                      <input placeholder="Empresa" value={recipientCompany} onChange={e => setRecipientCompany(e.target.value)} className="w-full border border-slate-300 rounded px-2 py-1.5 text-xs" />
+                      <input placeholder="Dirección" value={recipientAddress} onChange={e => setRecipientAddress(e.target.value)} className="w-full border border-slate-300 rounded px-2 py-1.5 text-xs" />
+                  </div>
+              </div>
+
+              {/* CC LIST */}
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Copia a (CC)</label>
+                  <div className="flex gap-2 mb-2">
+                      <input 
+                          placeholder="Nombre / Cargo" 
+                          value={ccInput}
+                          onChange={(e) => setCcInput(e.target.value)}
+                          onKeyDown={handleCcKeyDown}
+                          className="flex-1 border border-slate-300 rounded px-2 py-1.5 text-xs"
+                      />
+                      <button 
+                          onClick={() => handleAddCc(ccInput)}
+                          className="bg-slate-200 hover:bg-slate-300 text-slate-600 px-2 rounded text-xs font-bold"
+                      >
+                          +
+                      </button>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                      {ccList.map((cc, idx) => (
+                          <span key={idx} className="bg-white border border-slate-200 text-slate-600 px-2 py-0.5 rounded text-[10px] flex items-center gap-1">
+                              {cc}
+                              {!isReadOnly && (
+                                  <button onClick={() => handleRemoveCc(cc)} className="text-red-400 hover:text-red-600 font-bold">×</button>
+                              )}
+                          </span>
+                      ))}
+                  </div>
+              </div>
+
+              {/* GENERATE BUTTON */}
+              <div className="flex flex-col gap-2">
+                  <button 
+                      onClick={handleCreateOrUpdate}
+                      className="w-full py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
+                  >
+                      <span>{activeDoc ? '💾 Guardar Cambios' : '⚡ Generar Documento'}</span>
+                  </button>
+                  
+                  <button 
+                      onClick={handlePreview}
+                      className={`w-full py-2 font-bold rounded-lg transition-colors flex items-center justify-center gap-2 text-xs ${activeDoc ? 'bg-slate-200 text-slate-700 hover:bg-slate-300' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
+                      title={activeDoc ? "Ver vista previa del PDF" : "Genera el documento primero para ver la vista previa"}
+                  >
+                      <span>👁️ Vista Previa PDF (con firma)</span>
+                  </button>
+              </div>
+          </div>
+      </div>
+
+      {/* MAIN CONTENT: EDITOR */}
+      <div className="flex-1 flex flex-col h-full relative overflow-hidden bg-slate-100">
         
-        <div className="bg-white px-6 py-4 border-b border-slate-200 shadow-sm z-30 flex justify-between items-center sticky top-0">
-            <div>
-            <h2 className="text-lg font-bold text-slate-800">
-                {existingDoc ? `Editando: ${existingDoc.radicadoCode || 'Borrador'}` : (replyToDoc ? 'Redactar Respuesta' : 'Nuevo Documento')}
-            </h2>
-            <div className="text-xs flex items-center gap-2">
-                <span className={`px-1.5 py-0.5 rounded font-bold ${series === 'ADM' ? 'bg-slate-200 text-slate-700' : 'bg-indigo-100 text-indigo-700'}`}>
-                    SERIE: {series}
-                </span>
-                <span className="text-slate-300">|</span>
-                <span className={`text-[10px] uppercase font-bold tracking-wider ${currentStatus === DocumentStatus.PENDING_APPROVAL ? 'text-orange-600' : 'text-slate-500'}`}>
-                    {currentStatus}
-                </span>
-            </div>
+        {/* TOP BAR */}
+        <div className="relative bg-white px-4 py-2 border-b border-slate-200 shadow-sm z-50 flex justify-between items-center">
+            <div className="flex items-center gap-3">
+                <button 
+                    onClick={() => setIsMetadataOpen(!isMetadataOpen)}
+                    className={`p-2 rounded-lg transition-colors ${isMetadataOpen ? 'bg-blue-50 text-blue-600' : 'hover:bg-slate-100 text-slate-600'}`}
+                    title="Configuración del Documento"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
+                </button>
+                
+                <div>
+                    <h2 className="text-sm font-bold text-slate-800 truncate max-w-[300px]">
+                        {title || 'Nuevo Documento'}
+                    </h2>
+                    <div className="text-[10px] text-slate-500 flex items-center gap-2">
+                        <span className="uppercase">{series}</span>
+                        <span>•</span>
+                        <span>{currentStatus}</span>
+                    </div>
+                </div>
             </div>
             
             <div className="flex gap-2">
-                <button onClick={onCancel} className="text-slate-500 hover:text-slate-800 px-3 py-1.5 text-sm font-medium transition-colors">
-                    Cancelar
+                <button 
+                    onClick={() => {
+                        console.log("Close button clicked");
+                        onCancel();
+                    }} 
+                    className="px-3 py-1.5 text-slate-600 text-sm font-medium hover:bg-slate-100 rounded-lg"
+                >
+                    Cerrar
                 </button>
                 
-                {userRole === 'ENGINEER' && (
+                {userRole === 'ENGINEER' && currentStatus === DocumentStatus.DRAFT && (
+                    <button 
+                        onClick={() => {
+                            if (confirm('¿Enviar a revisión?')) handleSave({ forceStatus: DocumentStatus.PENDING_APPROVAL });
+                        }}
+                        className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-indigo-700 flex items-center gap-1"
+                    >
+                        <span>📤</span> Enviar
+                    </button>
+                )}
+                
+                {/* Director Actions */}
+                {userRole === 'DIRECTOR' && currentStatus === DocumentStatus.PENDING_APPROVAL && (
                     <>
-                        <button 
-                            onClick={() => handleSave({})} 
-                            className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-4 py-1.5 rounded-lg text-sm font-medium shadow-sm transition-all"
-                        >
-                            Guardar Borrador
-                        </button>
-                        <button 
-                            onClick={() => handleSave({ forceStatus: DocumentStatus.PENDING_APPROVAL })} 
-                            className="bg-yellow-500 hover:bg-yellow-400 text-white px-4 py-1.5 rounded-lg text-sm font-bold shadow-md shadow-yellow-500/20 transition-colors flex items-center gap-2"
-                        >
-                            Solicitar Revisión
-                        </button>
+                        <button onClick={handleRejectWithReason} className="bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-red-200">Rechazar</button>
+                        <button onClick={handleApproveWithAudit} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-green-700">Aprobar</button>
                     </>
                 )}
 
-                {userRole === 'DIRECTOR' && (
-                    <>
-                        {currentStatus === DocumentStatus.PENDING_APPROVAL && (
-                            <>
-                                <button onClick={handleRejectWithReason} className="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 px-4 py-1.5 rounded-lg text-sm font-medium shadow-sm">
-                                    Rechazar
-                                </button>
-                                <button onClick={handleApproveWithAudit} className="bg-green-600 hover:bg-green-700 text-white px-4 py-1.5 rounded-lg text-sm font-bold shadow-md">
-                                    Aprobar y Firmar
-                                </button>
-                            </>
-                        )}
-
-                        {currentStatus === DocumentStatus.DRAFT && (
-                            <>
-                                <button onClick={() => handleSave({})} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-4 py-1.5 rounded-lg text-sm font-medium shadow-sm">
-                                    Guardar
-                                </button>
-                                <button onClick={() => handleSave({ shouldFinalize: true })} className="bg-green-600 hover:bg-green-700 text-white px-4 py-1.5 rounded-lg text-sm font-bold shadow-md">
-                                    Finalizar y Firmar
-                                </button>
-                            </>
-                        )}
-
-                        <button
-                          type="button"
-                          onClick={openPreview}
-                          className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-200 shadow-sm"
-                        >
-                          Vista previa
-                        </button>
-                    </>
+                {/* Radication */}
+                {userRole === 'DIRECTOR' && currentStatus === DocumentStatus.APPROVED && (
+                    <button onClick={() => setShowRadicationModal(true)} className="bg-purple-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-purple-700">Radicar</button>
                 )}
             </div>
         </div>
-        
-        {userRole === 'DIRECTOR' && isDirectorReviewing && (
-            <div className="bg-amber-50 border-b border-amber-200 px-6 py-2 flex items-center justify-center gap-2 text-sm text-amber-800 animate-fade-in">
-                <strong>Modo Revisión:</strong> Usted está revisando el trabajo de un Ingeniero. El documento es de solo lectura.
-            </div>
-        )}
 
-        <div className="flex-1 overflow-y-auto p-8 relative scroll-smooth bg-slate-100">
-            <div className="max-w-[210mm] mx-auto flex flex-col gap-6">
-                
-                <div className={`bg-white p-6 rounded-xl border border-slate-200 shadow-sm transition-opacity ${isReadOnly ? 'opacity-70 grayscale-[30%]' : ''}`}>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-                        
-                        {/* SERIES SELECTOR */}
-                        <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Serie / Depto</label>
-                            <select 
-                                value={series}
-                                onChange={(e) => setSeries(e.target.value as SeriesType)}
-                                disabled={isReadOnly}
-                                className="w-full bg-slate-50 border border-slate-200 rounded-lg text-sm p-2.5 outline-none focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed font-medium"
-                            >
-                                <option value="ADM">🏢 Administrativa (ADM)</option>
-                                <option value="TEC">👷 Técnica (TEC)</option>
-                            </select>
-                        </div>
-                        
-                        {/* TRD SELECTOR (REPLACES GENERIC TYPE SELECTOR FOR BETTER UX) */}
-                        <div className="md:col-span-2">
-                             <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Tabla de Retención (TRD)</label>
-                             <select
-                                value={trdCode}
-                                onChange={(e) => {
-                                    setTrdCode(e.target.value);
-                                    // Logic to auto-set type based on TRD if needed, for now mostly metadata
-                                }}
-                                disabled={isReadOnly}
-                                className="w-full bg-slate-50 border border-slate-200 rounded-lg text-sm p-2.5 outline-none focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed font-medium"
-                             >
-                                <option value="">-- Seleccionar Serie Documental --</option>
-                                {trdOptions.map(trd => (
-                                    <option key={trd.code} value={trd.code}>
-                                        {trd.code} - {trd.subseriesName} (Resp: {trd.responseDays ?? 15}d)
-                                    </option>
-                                ))}
-                             </select>
-                        </div>
-
-                        <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Plantilla</label>
-                            <select 
-                                value={template}
-                                onChange={(e) => handleTemplateChange(e.target.value as DocumentTemplate)}
-                                disabled={isReadOnly}
-                                className="w-full bg-slate-50 border border-slate-200 rounded-lg text-sm p-2.5 outline-none focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed"
-                            >
-                                <option value={DocumentTemplate.FORMAL_LETTER}>Carta Formal</option>
-                                <option value={DocumentTemplate.INTERNAL_MEMO}>Memorando Estándar</option>
-                            </select>
-                        </div>
+        {/* EDITOR AREA */}
+        <div className="flex-1 relative bg-slate-200">
+            {activeDoc || existingDoc ? (
+                <OnlyOfficeEditor 
+                    ref={editorRef}
+                    config={onlyOfficeConfig} 
+                    documentServerUrl="http://localhost:8080" 
+                    onLoadError={handleOnlyOfficeError}
+                />
+            ) : (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400">
+                    <div className="w-16 h-16 mb-4 rounded-full bg-slate-100 flex items-center justify-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="18"></line></svg>
                     </div>
-
-                    <div className="border-t border-slate-100 pt-4">
-        <h3 className="text-xs font-bold text-slate-800 uppercase mb-4 flex items-center gap-2">
-            Datos del Destinatario
-        </h3>
-        {trdCode && (
-          <div className="mb-2 text-xs text-slate-500">
-            <span className="inline-flex items-center gap-2 px-2 py-1 rounded-full bg-blue-50 border border-blue-100 text-blue-700">
-              TRD: {trdCode} · Plazo sugerido: {trdOptions.find(t => t.code === trdCode)?.responseDays ?? 15} días
-            </span>
-          </div>
-        )}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            
-                            {/* SMART COMBOBOX / AUTOCOMPLETE */}
-                            <div className="relative col-span-1 md:col-span-2">
-                                <ContactSelector 
-                                    value={recipientCompany}
-                                    onChange={setRecipientCompany}
-                                    onSelect={selectContact}
-                                    disabled={isReadOnly}
-                                />
-                            </div>
-
-                            <div className="col-span-1 md:col-span-2 flex gap-4">
-                                <div className="flex-1">
-                                    <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Atención A (Nombre)</label>
-                                    <input disabled={isReadOnly} type="text" value={recipientName} onChange={(e) => setRecipientName(e.target.value)} placeholder="Nombre Completo" maxLength={MEDIUM_TEXT_LIMIT} className="w-full p-2 border border-slate-200 rounded bg-slate-50 text-sm focus:bg-white focus:border-blue-400 outline-none disabled:bg-slate-100 disabled:text-slate-500 transition-all" />
-                                </div>
-                                <div className="flex-1">
-                                    <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Cargo</label>
-                                    <input disabled={isReadOnly} type="text" value={recipientRole} onChange={(e) => setRecipientRole(e.target.value)} placeholder="Cargo" maxLength={MEDIUM_TEXT_LIMIT} className="w-full p-2 border border-slate-200 rounded bg-slate-50 text-sm focus:bg-white focus:border-blue-400 outline-none disabled:bg-slate-100 disabled:text-slate-500 transition-all" />
-                                </div>
-                            </div>
-                            
-                            <div className="col-span-1 md:col-span-2">
-                                <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Dirección Física</label>
-                                <input disabled={isReadOnly} type="text" value={recipientAddress} onChange={(e) => setRecipientAddress(e.target.value)} placeholder="Dirección Física" maxLength={LONG_TEXT_LIMIT} className="w-full p-2 border border-slate-200 rounded bg-slate-50 text-sm focus:bg-white focus:border-blue-400 outline-none disabled:bg-slate-100 disabled:text-slate-500 transition-all" />
-                            </div>
-
-                            {/* CARBON COPY (CC) SECTION */}
-                            <div className="col-span-1 md:col-span-2 border-t border-slate-100 pt-3 mt-1">
-                                <div className="mb-2">
-                                    <ContactSelector 
-                                        label="Con Copia A (Cc):"
-                                        placeholder="Buscar y Agregar..."
-                                        value={ccInput}
-                                        onChange={setCcInput}
-                                        onSelect={(c) => handleAddCc(c.entityName)}
-                                        disabled={isReadOnly}
-                                        onKeyDown={handleCcKeyDown}
-                                    />
-                                    {/* Manual Add Trigger (Enter key handled in future or simple blur logic) */}
-                                    <div className="flex justify-end mt-1">
-                                        <button 
-                                            type="button"
-                                            onClick={() => handleAddCc(ccInput)} 
-                                            disabled={!ccInput || isReadOnly}
-                                            className="text-[10px] font-bold text-blue-600 hover:text-blue-800 disabled:opacity-50"
-                                        >
-                                            + Agregar Manualmente
-                                        </button>
-                                    </div>
-                                </div>
-                                
-                                <div className="flex flex-wrap gap-2">
-                                    {ccList.map((cc, idx) => (
-                                        <div key={idx} className="bg-slate-100 border border-slate-200 rounded-full px-3 py-1 flex items-center gap-2 shadow-sm">
-                                            <span className="text-xs text-slate-700 font-medium">{cc}</span>
-                                            {!isReadOnly && (
-                                                <button onClick={() => handleRemoveCc(cc)} className="text-slate-400 hover:text-red-500 rounded-full">
-                                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                                </button>
-                                            )}
-                                        </div>
-                                    ))}
-                                    {ccList.length === 0 && <span className="text-xs text-slate-400 italic">Sin copias.</span>}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                    <p className="font-medium">Configure los datos a la izquierda para generar el documento</p>
                 </div>
-
-                {useFallback && !isReadOnly && <FallbackToolbar onExecCmd={execCmd} />}
-
-                <div className={`transition-opacity duration-300 ${editorReady ? 'opacity-100' : 'opacity-0'}`}>
-                    <PaperContainer className="p-0 relative group !min-h-[800px] overflow-hidden" >
-                        <div className="px-[20mm] pt-[20mm] mb-0 print-hidden-controls">
-                            <div className="mb-2 border-b border-transparent group-hover:border-slate-100 transition-colors pb-2">
-                                <input 
-                                    disabled={isReadOnly}
-                                    type="text" 
-                                    value={title}
-                                    onChange={(e) => setTitle(e.target.value)}
-                                    maxLength={LONG_TEXT_LIMIT}
-                                    className="w-full text-lg font-bold text-slate-800 placeholder:text-slate-300 outline-none bg-transparent disabled:text-slate-600"
-                                    placeholder="Escriba la Referencia del Asunto..." 
-                                />
-                            </div>
-                            </div>
-
-                        <div className="relative min-h-[600px]">
-                            {useFallback ? (
-                                <div 
-                                    ref={fallbackRef}
-                                    contentEditable={!isReadOnly}
-                                    className="w-full h-full min-h-[600px] outline-none px-[20mm] py-[20mm] font-sans text-[11pt] leading-[1.5] text-slate-800 bg-white"
-                                    onInput={(e) => handleManualEdit(e.currentTarget.innerHTML)}
-                                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(content) }}
-                                />
-                            ) : (
-                                <textarea 
-                                    id={editorId}
-                                    className="w-full h-full border-none outline-none resize-none bg-transparent"
-                                ></textarea>
-                            )}
-                        </div>
-                    </PaperContainer>
-                    
-                    <FileAttachments 
-                        attachments={attachments}
-                        onChange={setAttachments}
-                        readOnly={isReadOnly}
-                        onDeleteAttachment={handleRemoveAttachment}
-                        apiBaseUrl={apiBaseUrl}
-                        onError={(msg) => addToast(msg, 'error')}
-                    />
-                </div>
-                <div className="h-20"></div>
-            </div>
+            )}
         </div>
 
       </div>
 
-      <CommentSection 
-        comments={comments}
-        currentUserRole={userRole}
-        onAddComment={handleAddComment}
-      />
-
-      {isPreviewMode && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-start justify-center overflow-auto py-10 px-6">
-          <div className="bg-white w-full max-w-5xl rounded-2xl shadow-2xl border border-slate-200 relative animate-fade-in">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-              <h3 className="text-lg font-semibold text-slate-800">Preview</h3>
-              <button
-                onClick={closePreview}
-                className="text-slate-400 hover:text-slate-800 rounded-full p-2 hover:bg-slate-100"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="p-8 bg-slate-50">
-              <div className="bg-white shadow-[0_15px_45px_rgba(0,0,0,0.08)] border border-slate-100 max-w-[210mm] mx-auto min-h-[297mm] p-[20mm] text-slate-900 prose prose-slate">
-                <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(previewHtml || '<p><em>No hay contenido para mostrar.</em></p>') }} />
+      {/* RADICATION MODAL */}
+      {showRadicationModal && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-2xl">
+                  <h3 className="text-xl font-bold mb-4">Firmar y Radicar</h3>
+                  <p className="text-slate-600 mb-4 text-sm">Ingrese su PIN de firma para proceder.</p>
+                  <input 
+                      type="password" 
+                      placeholder="PIN de 4 dígitos"
+                      className="w-full text-center text-2xl tracking-widest border border-slate-300 rounded-lg py-3 mb-6"
+                      maxLength={4}
+                      value={signaturePin}
+                      onChange={e => setSignaturePin(e.target.value)}
+                  />
+                  <div className="flex gap-3">
+                      <button onClick={() => setShowRadicationModal(false)} className="flex-1 py-2.5 text-slate-600 font-bold hover:bg-slate-100 rounded-lg">Cancelar</button>
+                      <button onClick={() => handleSign(SignatureMethod.DIGITAL)} className="flex-1 py-2.5 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-700">Confirmar</button>
+                  </div>
               </div>
-            </div>
           </div>
-        </div>
       )}
 
     </div>

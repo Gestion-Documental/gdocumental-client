@@ -160,6 +160,7 @@ export interface Document {
   };
   
   content?: string; 
+  contentUrl?: string; 
 
   securityHash?: string;
   qrCodeData?: string;
@@ -188,7 +189,22 @@ export interface Document {
   isPhysicalOriginal?: boolean; // New Field
   physicalLocationId?: string; // ID of the Box/Binder where original is stored
 
-  author?: string; // Author of the document
+  author?: {
+    fullName: string;
+    email: string;
+    role: string;
+  };
+  assignedToUser?: {
+    id: string;
+    fullName: string;
+    email: string;
+    role: string;
+  };
+  physicalLocation?: {
+    id: string;
+    name: string;
+    parentId: string | null;
+  };
 
   createdAt: string;
   updatedAt?: string;

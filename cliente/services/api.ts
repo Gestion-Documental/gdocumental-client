@@ -35,13 +35,20 @@ const mapDocument = (doc: any): Document => {
     status: doc.status as DocumentStatus,
     metadata: doc.metadata || {},
     content: doc.content || '',
+    contentUrl: doc.contentUrl, // Map contentUrl from backend
     requiresResponse: doc.metadata?.requiresResponse || false,
     deadline: doc.metadata?.deadline || undefined,
     isCompleted: doc.metadata?.isCompleted || false,
     receptionMedium: doc.metadata?.receptionMedium,
     physicalLocationId: doc.physicalLocationId || undefined,
-    author: doc.metadata?.author || '',
-    signatureImage: doc.signatureImage || doc.metadata?.signatureImage || undefined,
+    physicalLocation: doc.physicalLocation,
+    author: doc.author || doc.metadata?.author || '',
+    assignedToUser: doc.assignedToUser,
+    signatureImage: (() => {
+        const raw = doc.signatureImage || doc.metadata?.signatureImage;
+        if (!raw) return undefined;
+        return raw.startsWith('/uploads') ? `${API_URL}${raw}` : raw;
+    })(),
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt || undefined,
     attachments: (doc.attachments || []).map((a: any) => ({
@@ -83,6 +90,27 @@ export async function fetchProjectTrd(token: string, projectId: string) {
   });
   await ensureAuth(res as any);
   if (!res.ok) throw new Error('No se pudo obtener TRD');
+  return res.json();
+}
+
+export async function fetchMe(token: string) {
+  const res = await fetch(`${API_URL}/users/me`, { headers: authHeader(token) });
+  await ensureAuth(res as any);
+  if (!res.ok) throw new Error('No se pudo obtener el perfil');
+  return res.json();
+}
+
+export async function changePassword(token: string, currentPassword: string, newPassword: string) {
+  const res = await fetch(`${API_URL}/users/me/password`, {
+    method: 'PUT',
+    headers: authHeader(token),
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+  await ensureAuth(res as any);
+  if (!res.ok) {
+    const msg = await res.json().catch(() => ({}));
+    throw new Error(msg.error || 'No se pudo cambiar la contraseña');
+  }
   return res.json();
 }
 
@@ -227,11 +255,16 @@ export async function updateStatus(token: string, id: string, status: string) {
   return res.json();
 }
 
-export async function updateDelivery(token: string, id: string, payload: { receivedBy: string; receivedAt: string; proof: string }) {
+export async function updateDelivery(token: string, id: string, payload: { receivedBy: string; receivedAt: string; file: File }) {
+  const formData = new FormData();
+  formData.append('receivedBy', payload.receivedBy);
+  formData.append('receivedAt', payload.receivedAt);
+  formData.append('file', payload.file);
+
   const res = await fetch(`${API_URL}/documents/${id}/delivery`, {
     method: 'POST',
-    headers: authHeader(token),
-    body: JSON.stringify(payload),
+    headers: { Authorization: `Bearer ${token}` }, // No Content-Type for FormData
+    body: formData,
   });
   await ensureAuth(res as any);
   if (!res.ok) {
@@ -252,10 +285,26 @@ export async function downloadLabel(token: string, id: string) {
   return blob;
 }
 
-export async function uploadSignature(token: string, file?: File, pin?: string) {
+// Previsualizar PDF con firma
+export async function previewDocument(token: string, id: string) {
+  const res = await fetch(`${API_URL}/documents/${id}/preview`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await ensureAuth(res as any);
+  if (!res.ok) {
+      const msg = await res.json().catch(() => ({}));
+      throw new Error(msg.error || 'No se pudo generar la vista previa');
+  }
+  const blob = await res.blob();
+  return blob;
+}
+
+export async function uploadSignature(token: string, file?: File, pin?: string, currentPin?: string) {
   const formData = new FormData();
   if (file) formData.append('file', file);
   if (pin) formData.append('pin', pin);
+  if (currentPin) formData.append('currentPin', currentPin);
   const res = await fetch(`${API_URL}/users/me/signature`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
@@ -283,3 +332,22 @@ export async function refreshAccessToken(refreshToken: string) {
   }
   return res.json();
 }
+export async function assignDocument(token: string, docId: string, userId: string | null) {
+  const res = await fetch(`${API_URL}/documents/${docId}/assign`, {
+    method: 'PUT',
+    headers: authHeader(token),
+    body: JSON.stringify({ userId }),
+  });
+  await ensureAuth(res);
+  return res.json();
+}
+
+export async function fetchUsers(token: string) {
+  const res = await fetch(`${API_URL}/users`, {
+    headers: authHeader(token),
+  });
+  await ensureAuth(res);
+  return res.json();
+}
+
+

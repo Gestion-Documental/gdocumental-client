@@ -3,26 +3,30 @@ import React, { useState } from 'react';
 
 interface DeliveryRegistrationModalProps {
   onClose: () => void;
-  onConfirm: (data: { receivedBy: string; receivedAt: string; proof: string }) => void;
+  onConfirm: (data: { receivedBy: string; receivedAt: string; file: File }) => void;
 }
 
 const DeliveryRegistrationModal: React.FC<DeliveryRegistrationModalProps> = ({ onClose, onConfirm }) => {
   const [receivedBy, setReceivedBy] = useState('');
-  const [receivedAt, setReceivedAt] = useState(new Date().toISOString().slice(0, 16)); // Format for datetime-local
-  const [proof, setProof] = useState<string>(''); // Mock file
+  const [receivedAt, setReceivedAt] = useState(new Date().toISOString().slice(0, 16));
+  const [file, setFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleMockUpload = () => {
-    // Mock image
-    setProof('https://via.placeholder.com/300x150.png?text=Sello+De+Recibido');
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setFile(e.target.files[0]);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!file) {
+      alert('Debe subir una evidencia');
+      return;
+    }
     setIsSubmitting(true);
-    setTimeout(() => {
-        onConfirm({ receivedBy, receivedAt, proof });
-    }, 1000);
+    // Simulate delay or just call
+    onConfirm({ receivedBy, receivedAt, file });
   };
 
   return (
@@ -59,19 +63,22 @@ const DeliveryRegistrationModal: React.FC<DeliveryRegistrationModalProps> = ({ o
 
             <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Evidencia (Sello/Firma)</label>
-                <div 
-                    onClick={handleMockUpload}
-                    className="border-2 border-dashed border-slate-300 rounded-lg p-4 text-center cursor-pointer hover:bg-slate-50 hover:border-blue-400 transition-colors"
-                >
-                    {proof ? (
+                <div className="border-2 border-dashed border-slate-300 rounded-lg p-4 text-center hover:bg-slate-50 transition-colors relative">
+                    <input 
+                        type="file" 
+                        accept="image/*,application/pdf"
+                        onChange={handleFileChange}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    />
+                    {file ? (
                         <div className="flex items-center gap-2 justify-center text-green-600">
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                            <span className="text-sm font-medium">Imagen Cargada</span>
+                            <span className="text-sm font-medium truncate max-w-[200px]">{file.name}</span>
                         </div>
                     ) : (
                         <>
-                            <svg className="w-6 h-6 text-slate-400 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                            <span className="text-xs text-slate-500">Clic para subir foto</span>
+                            <svg className="w-6 h-6 text-slate-400 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                            <span className="text-xs text-slate-500">Clic para subir foto o PDF</span>
                         </>
                     )}
                 </div>

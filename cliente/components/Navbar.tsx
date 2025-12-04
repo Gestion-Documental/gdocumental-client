@@ -2,8 +2,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Project, ProjectType, ViewState, User } from '../types';
 
+import ChangePasswordModal from './ChangePasswordModal';
+
 interface NavbarProps {
   currentUser: User;
+  token: string;
   projects: Project[];
   activeProjectId: string;
   onSelectProject: (id: string) => void;
@@ -13,9 +16,10 @@ interface NavbarProps {
   onLogout: () => void;
 }
 
-const Navbar: React.FC<NavbarProps> = ({ currentUser, projects, activeProjectId, onSelectProject, onToggleSchema, onNavigate, currentView, onLogout }) => {
+const Navbar: React.FC<NavbarProps> = ({ currentUser, token, projects, activeProjectId, onSelectProject, onToggleSchema, onNavigate, currentView, onLogout }) => {
   const [isProjectOpen, setIsProjectOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   
   const activeProject = projects.find(p => p.id === activeProjectId);
   const profileRef = useRef<HTMLDivElement>(null);
@@ -31,7 +35,8 @@ const Navbar: React.FC<NavbarProps> = ({ currentUser, projects, activeProjectId,
   }, []);
 
   return (
-    <nav className="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-40">
+    <>
+    <nav className="glass sticky top-0 z-40 border-b border-white/20 shadow-sm transition-all duration-300">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16">
           
@@ -81,7 +86,7 @@ const Navbar: React.FC<NavbarProps> = ({ currentUser, projects, activeProjectId,
                   </button>
 
                   {isProjectOpen && (
-                    <div className="absolute top-full mt-2 w-72 bg-white rounded-xl shadow-xl border border-slate-100 overflow-hidden animate-fade-in right-0 z-50">
+                    <div className="absolute top-full mt-2 w-72 bg-white/90 backdrop-blur-xl rounded-xl shadow-2xl border border-white/20 overflow-hidden animate-fade-in right-0 z-50 ring-1 ring-black/5">
                       <div className="bg-slate-50 px-4 py-2 border-b border-slate-100">
                         <span className="text-xs font-semibold text-slate-500 uppercase">Switch Context</span>
                       </div>
@@ -127,7 +132,7 @@ const Navbar: React.FC<NavbarProps> = ({ currentUser, projects, activeProjectId,
                 </button>
 
                 {isProfileOpen && (
-                    <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-slate-100 overflow-hidden animate-fade-in z-50">
+                    <div className="absolute top-full right-0 mt-2 w-48 bg-white/90 backdrop-blur-xl rounded-xl shadow-2xl border border-white/20 overflow-hidden animate-fade-in z-50 ring-1 ring-black/5">
                         <div className="py-1">
                             <button 
                                 onClick={() => {
@@ -140,7 +145,7 @@ const Navbar: React.FC<NavbarProps> = ({ currentUser, projects, activeProjectId,
                             </button>
                             <button 
                                 onClick={() => {
-                                    alert("Cambiar Contraseña (Simulado)");
+                                    setIsPasswordModalOpen(true);
                                     setIsProfileOpen(false);
                                 }}
                                 className="block w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
@@ -163,6 +168,18 @@ const Navbar: React.FC<NavbarProps> = ({ currentUser, projects, activeProjectId,
         </div>
       </div>
     </nav>
+
+    {isPasswordModalOpen && (
+      <ChangePasswordModal 
+        token={token}
+        onClose={() => setIsPasswordModalOpen(false)}
+        onSuccess={() => {
+          alert('Contraseña actualizada correctamente. Por favor inicia sesión nuevamente.');
+          onLogout();
+        }}
+      />
+    )}
+    </>
   );
 };
 

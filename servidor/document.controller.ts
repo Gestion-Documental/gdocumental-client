@@ -10,9 +10,44 @@ import fs from 'fs';
 import PDFDocument from 'pdfkit';
 import QRCode from 'qrcode';
 import fetch from 'node-fetch';
+import sanitizeHtml from 'sanitize-html';
+import multer from 'multer';
+import { runOcr } from './ocr.service';
+import PizZip from 'pizzip';
+import Docxtemplater from 'docxtemplater';
+import { convertToPdf } from './services/conversion.service';
+import { stampPdf } from './services/stamping.service';
+import { Document as WordDocument, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, Header, Footer, BorderStyle } from "docx";
 
 const prisma = new PrismaClient();
 const router = Router();
+
+const deliveryUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
+      cb(null, true);
+    } else {
+      cb(new Error('Solo se permiten imágenes o PDF'));
+    }
+  },
+});
+
+const contentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+  fileFilter: (_req, file, cb) => {
+    if (
+      file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      file.mimetype === 'application/msword'
+    ) {
+      cb(null, true);
+    } else {
+      cb(new Error('Solo se permiten archivos Word (.docx)'));
+    }
+  },
+});
 
 function computeDeadlineFromTrd(metadata: any, projectTrd: any[] | null | undefined): string | null {
   const trdCode = metadata?.trdCode;
@@ -60,7 +95,12 @@ router.get(
       const docs = await prisma.document.findMany({
         where: projectId ? { projectId: projectId as string } : undefined,
         orderBy: { createdAt: 'desc' },
-        include: { attachments: true },
+        include: { 
+          attachments: true,
+          author: { select: { fullName: true, email: true, role: true } },
+          assignedToUser: { select: { id: true, fullName: true, email: true, role: true } },
+          physicalLocation: true
+        },
       });
       return res.json(docs);
     } catch (err) {
@@ -240,7 +280,12 @@ router.get(
       const { id } = req.params;
       const doc = await prisma.document.findUnique({
         where: { id },
-        include: { attachments: true },
+        include: { 
+          attachments: true,
+          author: { select: { fullName: true, email: true, role: true } },
+          assignedToUser: { select: { id: true, fullName: true, email: true, role: true } },
+          physicalLocation: true
+        },
       });
       if (!doc) return res.status(404).json({ error: 'Documento no encontrado' });
       res.json(doc);
@@ -255,10 +300,21 @@ router.get(
 router.put(
   '/:id',
   checkRole([UserRole.ENGINEER, UserRole.DIRECTOR]),
+  contentUpload.single('file'),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const { title, content, metadata, series, retentionDate, isPhysicalOriginal, physicalLocationId } = req.body;
+      const { title, content, series, retentionDate, isPhysicalOriginal, physicalLocationId } = req.body;
+      const file = req.file;
+
+      let metadata = req.body.metadata;
+      if (typeof metadata === 'string') {
+        try {
+          metadata = JSON.parse(metadata);
+        } catch (e) {
+          console.warn('Failed to parse metadata JSON', e);
+        }
+      }
 
       const doc = await prisma.document.findUnique({ where: { id } });
       if (!doc) return res.status(404).json({ error: 'Documento no encontrado' });
@@ -275,8 +331,8 @@ router.put(
 
       // Validar TRD contra proyecto
       if (metadata?.trdCode) {
-        const project = await prisma.project.findUnique({ where: { id: doc.projectId }, select: { trd: true } });
-        const trdList = project?.trd || [];
+        const project = await prisma.project.findUnique({ where: { id: doc.projectId }, select: { trd: true } as any });
+        const trdList = (project as any)?.trd || [];
         const found = trdList.find((t: any) => (t.code || '').toLowerCase() === (metadata.trdCode || '').toLowerCase());
         if (!found) {
           return res.status(400).json({ error: 'TRD no válida para el proyecto' });
@@ -285,21 +341,166 @@ router.put(
 
       let computedDeadline: string | null = metadata?.deadline || null;
       if (!computedDeadline && metadata?.requiresResponse) {
-        const project = await prisma.project.findUnique({ where: { id: doc.projectId }, select: { trd: true } });
-        computedDeadline = computeDeadlineFromTrd(metadata, project?.trd);
+        const project = await prisma.project.findUnique({ where: { id: doc.projectId }, select: { trd: true } as any });
+        computedDeadline = computeDeadlineFromTrd(metadata, (project as any)?.trd);
+      }
+
+      // Prepare final values for potential regeneration
+      const finalTitle = title ?? doc.title;
+      const finalSeries = series ?? doc.series;
+      const finalMetadata = metadata 
+            ? { ...(doc.metadata as any), ...metadata, deadline: computedDeadline ?? null }
+            : (doc.metadata as any);
+
+      let contentUrl = undefined;
+      if (file) {
+        const storage = getStorage();
+        const stored = await storage.save({
+          buffer: file.buffer,
+          filename: `content-${id}-${Date.now()}.docx`,
+          contentType: file.mimetype,
+        });
+        contentUrl = stored.url;
+      } else if (doc.type === DocumentType.OUTBOUND || doc.type === 'OUTBOUND') {
+         // REGENERATE DOCX
+         try {
+             console.log("Regenerating DOCX for:", finalTitle);
+             const docx = new WordDocument({
+                styles: {
+                    default: {
+                        document: { run: { font: "Ubuntu" } },
+                        heading1: { run: { font: "Ubuntu" } },
+                        heading2: { run: { font: "Ubuntu" } },
+                    },
+                },
+                sections: [{
+                    properties: {},
+                    headers: {
+                        default: new Header({
+                            children: [
+                                new Paragraph({
+                                    children: [new TextRun({ text: "[NOMBRE DE LA EMPRESA]", bold: true, size: 28 })],
+                                    alignment: AlignmentType.CENTER,
+                                }),
+                                new Paragraph({
+                                    children: [new TextRun({ text: "[Departamento / Gerencia]", italics: true, size: 24 })],
+                                    alignment: AlignmentType.CENTER,
+                                }),
+                                new Paragraph({
+                                    text: "",
+                                    border: { bottom: { color: "000000", space: 1, style: BorderStyle.SINGLE, size: 6 } },
+                                }),
+                            ],
+                        }),
+                    },
+                    footers: {
+                        default: new Footer({
+                            children: [
+                                new Paragraph({
+                                    children: [new TextRun({ text: "Dirección: [DIRECCIÓN DE LA EMPRESA]", size: 20 })],
+                                    alignment: AlignmentType.CENTER,
+                                }),
+                            ],
+                        }),
+                    },
+                    children: [
+                        // Metadata Table
+                        new Table({
+                            width: { size: 100, type: WidthType.PERCENTAGE },
+                            rows: [
+                                new TableRow({
+                                    children: [
+                                        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "FECHA:", bold: true })] })], width: { size: 20, type: WidthType.PERCENTAGE } }),
+                                        new TableCell({ children: [new Paragraph({ children: [new TextRun(new Date().toLocaleDateString('es-CO'))] })] }),
+                                        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "SERIE:", bold: true })] })], width: { size: 20, type: WidthType.PERCENTAGE } }),
+                                        new TableCell({ children: [new Paragraph({ children: [new TextRun(finalSeries || 'ADM')] })] }),
+                                    ],
+                                }),
+                                new TableRow({
+                                    children: [
+                                        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "RADICADO:", bold: true })] })] }),
+                                        new TableCell({ children: [new Paragraph({ children: [new TextRun("BORRADOR")] })], columnSpan: 3 }),
+                                    ],
+                                }),
+                            ],
+                        }),
+                        new Paragraph({ text: "" }), new Paragraph({ text: "" }), new Paragraph({ text: "" }), new Paragraph({ text: "" }),
+
+                        // Recipient Block
+                        new Paragraph({ children: [new TextRun({ text: "Señor(a):", bold: true })] }),
+                        new Paragraph({ children: [new TextRun({ text: finalMetadata?.recipientName || '', bold: true })] }),
+                        new Paragraph({ children: [new TextRun(finalMetadata?.recipientRole || '')] }),
+                        new Paragraph({ children: [new TextRun(finalMetadata?.recipientCompany || '')] }),
+                        new Paragraph({ children: [new TextRun(finalMetadata?.recipientAddress || '')] }),
+
+                        new Paragraph({ text: "" }), new Paragraph({ text: "" }),
+
+                        // Title
+                        new Paragraph({
+                            children: [new TextRun({ text: `REF: ${finalTitle || 'Sin Título'}`, bold: true, size: 24 })],
+                            alignment: AlignmentType.RIGHT,
+                        }),
+
+                        new Paragraph({ text: "" }), new Paragraph({ text: "" }),
+
+                        // Body Placeholder
+                        new Paragraph({ children: [new TextRun("Estimado(a):")] }),
+                        new Paragraph({ text: "" }),
+                        new Paragraph({ children: [new TextRun("Por medio de la presente... (Escriba aquí el contenido de su carta)")] }),
+
+                        new Paragraph({ text: "" }), new Paragraph({ text: "" }), new Paragraph({ text: "" }),
+
+                        // Signature
+                        new Paragraph({ children: [new TextRun("Atentamente,")] }),
+                        new Paragraph({ text: "" }), new Paragraph({ text: "" }), new Paragraph({ text: "" }),
+                        new Paragraph({ text: "" }), new Paragraph({ text: "" }), new Paragraph({ text: "" }),
+                        new Paragraph({ text: "" }), new Paragraph({ text: "" }),
+
+                        // CC List
+                        ...(finalMetadata?.ccList && Array.isArray(finalMetadata.ccList) && finalMetadata.ccList.length > 0 ? [
+                            new Paragraph({
+                                children: [
+                                    new TextRun({
+                                        text: "Copia: " + finalMetadata.ccList.join(", "),
+                                        size: 16, // 8pt
+                                    }),
+                                ],
+                            }),
+                        ] : []),
+                    ],
+                }],
+            });
+
+             const buffer = await Packer.toBuffer(docx);
+             const storage = getStorage();
+             const stored = await storage.save({
+                 buffer: buffer,
+                 filename: `draft-${doc.id}-${Date.now()}.docx`,
+                 contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+             });
+             contentUrl = stored.url;
+             console.log("Regenerated DOCX saved to:", contentUrl);
+         } catch (e) {
+             console.error("Error regenerating DOCX:", e);
+         }
       }
 
       const updated = await prisma.document.update({
         where: { id },
         data: {
           title: title ?? doc.title,
-          content: content ?? doc.content,
+
+          content: content ? sanitizeHtml(content, {
+             allowedTags: sanitizeHtml.defaults.allowedTags.concat(['img']),
+             allowedAttributes: { ...sanitizeHtml.defaults.allowedAttributes, img: ['src'] }
+          }) : doc.content,
+          contentUrl: contentUrl ?? doc.contentUrl, // Update if new file
           metadata: metadata
-            ? { set: { ...(doc.metadata as any), ...metadata, deadline: computedDeadline ?? null } }
+            ? { ...(doc.metadata as any), ...metadata, deadline: computedDeadline ?? null }
             : undefined,
           series: series ?? doc.series,
           retentionDate: retentionDate ?? doc.retentionDate,
-          isPhysicalOriginal: isPhysicalOriginal ?? doc.isPhysicalOriginal,
+          isPhysicalOriginal: isPhysicalOriginal ? String(isPhysicalOriginal) === 'true' : doc.isPhysicalOriginal, // Handle string from FormData
           physicalLocationId: physicalLocationId ?? doc.physicalLocationId,
           updatedAt: new Date(),
         },
@@ -309,6 +510,30 @@ router.put(
     } catch (error) {
       console.error('Update document error:', error);
       res.status(500).json({ error: 'Failed to update document' });
+    }
+  }
+);
+
+// Assign document to user
+router.put(
+  '/:id/assign',
+  checkRole([UserRole.DIRECTOR, UserRole.SUPER_ADMIN, UserRole.ENGINEER]),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { userId } = req.body; // userId can be null to unassign
+
+      const doc = await prisma.document.update({
+        where: { id },
+        data: { assignedToUserId: userId },
+        include: { assignedToUser: true }
+      });
+
+      await logAudit(req.user?.id, 'DOCUMENT_ASSIGN', 'Document', id, `Asignado a ${doc.assignedToUser?.fullName || 'Nadie'}`);
+      res.json(doc);
+    } catch (error) {
+      console.error('Assignment error', error);
+      res.status(500).json({ error: 'Error asignando documento' });
     }
   }
 );
@@ -327,16 +552,40 @@ router.post(
       const doc = await prisma.document.findUnique({ where: { id } });
       if (!doc) return res.status(404).json({ error: 'Documento no encontrado' });
       if (
-        doc.status === DocumentStatus.RADICADO ||
         doc.status === DocumentStatus.ARCHIVED ||
         doc.status === DocumentStatus.VOID
       ) {
-        return res.status(400).json({ error: 'No se pueden subir adjuntos a documentos finalizados/anulados' });
+        return res.status(400).json({ error: 'No se pueden subir adjuntos a documentos archivados o anulados' });
       }
+
+      // --- STAMPING LOGIC ---
+      let finalBuffer = file.buffer;
+      if (file.mimetype === 'application/pdf') {
+        try {
+          const { stampPdf } = await import('./services/stamping.service');
+          
+          // Count existing attachments to get the correct number for the stamp
+          const existingCount = await prisma.attachment.count({ where: { documentId: id } });
+          
+          finalBuffer = await stampPdf(file.buffer, {
+            radicado: doc.radicadoCode || 'PENDIENTE',
+            date: new Date().toLocaleDateString(),
+            attachments: existingCount + 1,
+            qrData: JSON.stringify({
+              id: doc.id,
+              radicado: doc.radicadoCode,
+              hash: (doc.metadata as any)?.securityHash
+            })
+          });
+        } catch (err) {
+          console.warn('Failed to stamp PDF, saving original', err);
+        }
+      }
+      // -----------------------
 
       const storage = getStorage();
       const stored = await storage.save({
-        buffer: file.buffer,
+        buffer: finalBuffer,
         filename: file.originalname,
         contentType: file.mimetype,
       });
@@ -346,7 +595,7 @@ router.post(
           filename: file.originalname,
           url: stored.url,
           storagePath: stored.key,
-          size: stored.size,
+          size: finalBuffer.length, // Use stamped size
           documentId: id,
           logEntryId: null,
         },
@@ -357,6 +606,59 @@ router.post(
     } catch (error) {
       console.error('Attachment upload error', error);
       res.status(500).json({ error: 'No se pudo subir el archivo' });
+    }
+  }
+);
+
+// Download all attachments as ZIP
+router.get(
+  '/:id/zip',
+  checkRole([UserRole.ENGINEER, UserRole.DIRECTOR, UserRole.SUPER_ADMIN]),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const doc = await prisma.document.findUnique({
+        where: { id },
+        include: { attachments: true }
+      });
+
+      if (!doc) return res.status(404).json({ error: 'Documento no encontrado' });
+      if (doc.attachments.length === 0) return res.status(400).json({ error: 'No hay adjuntos para descargar' });
+
+      const archiver = require('archiver');
+      const archive = archiver('zip', { zlib: { level: 9 } });
+
+      res.attachment(`${doc.radicadoCode || 'documento'}_anexos.zip`);
+
+      archive.pipe(res);
+
+      const storage = getStorage();
+
+      for (const att of doc.attachments) {
+        // If local storage, we can append file directly
+        if (process.env.STORAGE_DRIVER === 'local' || !process.env.STORAGE_DRIVER) {
+           const fs = require('fs');
+           const path = require('path');
+           // storagePath is relative to uploads usually, or absolute?
+           // LocalStorage saves as `uploads/filename`.
+           // Let's check LocalStorage implementation. 
+           // It returns `key` which is the relative path.
+           const filePath = path.join(process.cwd(), att.storagePath || '');
+           if (fs.existsSync(filePath)) {
+             archive.file(filePath, { name: att.filename });
+           }
+        } else {
+           // If S3, we need to fetch it (not implemented yet fully for stream)
+           // For now assuming local as per context
+        }
+      }
+
+      await archive.finalize();
+      await logAudit(req.user?.id, 'ZIP_DOWNLOAD', 'Document', id, `Descargó paquete ZIP`);
+
+    } catch (error) {
+      console.error('ZIP download error', error);
+      res.status(500).json({ error: 'Error generando ZIP' });
     }
   }
 );
@@ -496,14 +798,23 @@ router.post(
   }
 );
 
+
+
 // Register delivery info
 router.post(
   '/:id/delivery',
   checkRole([UserRole.ENGINEER, UserRole.DIRECTOR]),
+  deliveryUpload.single('file'),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const { receivedBy, receivedAt, deliveryProof } = req.body;
+      const { receivedBy, receivedAt } = req.body;
+      const file = req.file;
+
+      if (!file) {
+        return res.status(400).json({ error: 'Debe subir una evidencia (foto o PDF)' });
+      }
+
       const doc = await prisma.document.findUnique({ where: { id } });
       if (!doc) return res.status(404).json({ error: 'Documento no encontrado' });
       if (doc.type !== DocumentType.OUTBOUND) {
@@ -513,14 +824,19 @@ router.post(
         return res.status(400).json({ error: 'Solo documentos radicados pueden registrarse como entregados' });
       }
 
+      const storage = getStorage();
+      const stored = await storage.save({
+        buffer: file.buffer,
+        filename: `delivery-${id}-${Date.now()}-${file.originalname}`,
+        contentType: file.mimetype,
+      });
+
       const updated = await prisma.document.update({
         where: { id },
         data: {
           metadata: {
-            set: {
               ...(doc.metadata as any),
-              delivery: { receivedBy, receivedAt, deliveryProof },
-            },
+              delivery: { receivedBy, receivedAt, deliveryProof: stored.url },
           },
           updatedAt: new Date(),
         },
@@ -538,16 +854,51 @@ router.post(
 router.post(
   '/inbound',
   checkRole([UserRole.ENGINEER, UserRole.DIRECTOR]),
+  upload.single('file'),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { projectId, series, title, metadata, requiresResponse, deadline, receptionMedium } = req.body;
+      const { projectId, series, title, metadata: metadataStr, requiresResponse, deadline, receptionMedium } = req.body;
       const userId = req.user!.id;
+      const file = req.file;
+
+      let metadata: any = {};
+      try {
+        metadata = typeof metadataStr === 'string' ? JSON.parse(metadataStr) : metadataStr || {};
+      } catch (e) {
+        metadata = {};
+      }
+
+      // OCR Processing
+      let extractedContent = '';
+      let detectedDate: Date | null = null;
+
+      if (file) {
+        try {
+          const ocrResult = await runOcr(file.buffer);
+          extractedContent = ocrResult.text;
+          detectedDate = ocrResult.detectedDate;
+        } catch (e) {
+          console.warn('OCR failed', e);
+        }
+      }
+
+      // Sanitize extracted content or provided content
+      const rawContent = metadata?.content || extractedContent || '';
+      const sanitizedContent = sanitizeHtml(rawContent, {
+        allowedTags: sanitizeHtml.defaults.allowedTags.concat(['img']),
+        allowedAttributes: { ...sanitizeHtml.defaults.allowedAttributes, img: ['src'] }
+      });
+
+      // Auto-fill document date if detected and not provided
+      if (detectedDate && !metadata.documentDate) {
+        metadata.documentDate = detectedDate.toISOString();
+      }
 
       // Validar TRD contra proyecto
       if (metadata?.trdCode) {
-        const project = await prisma.project.findUnique({ where: { id: projectId }, select: { trd: true } });
-        const trdList = project?.trd || [];
-        const found = trdList.find((t: any) => (t.code || '').toLowerCase() === (metadata.trdCode || '').toLowerCase());
+        const project = await prisma.project.findUnique({ where: { id: projectId }, select: { trd: true } as any });
+        const trdList = (project as any)?.trd || [];
+        const found = (trdList as any[]).find((t: any) => (t.code || '').toLowerCase() === (metadata.trdCode || '').toLowerCase());
         if (!found) {
           return res.status(400).json({ error: 'TRD no válida para el proyecto' });
         }
@@ -555,8 +906,8 @@ router.post(
 
       // Generate radicado
       const radicadoCode = await generateRadicado(projectId, series as any, 'IN');
-      const project = await prisma.project.findUnique({ where: { id: projectId }, select: { trd: true } });
-      const finalDeadline = deadline || computeDeadlineFromTrd(metadata, project?.trd);
+      const project = await prisma.project.findUnique({ where: { id: projectId }, select: { trd: true } as any });
+      const finalDeadline = deadline || computeDeadlineFromTrd(metadata, (project as any)?.trd);
 
       const doc = await prisma.document.create({
         data: {
@@ -564,22 +915,42 @@ router.post(
           type: DocumentType.INBOUND,
           series,
           title,
-          content: metadata?.content || null,
+
+          content: sanitizedContent,
           status: DocumentStatus.RADICADO,
+
           radicadoCode,
           metadata: {
-            set: {
               ...metadata,
               requiresResponse: !!requiresResponse,
               deadline: finalDeadline || null,
               receptionMedium: receptionMedium || null,
               registeredBy: userId,
-            },
           },
           authorId: userId,
           createdAt: new Date(),
         },
       });
+
+      // If file uploaded, save as attachment
+      if (file) {
+        const storage = getStorage();
+        const stored = await storage.save({
+          buffer: file.buffer,
+          filename: file.originalname,
+          contentType: file.mimetype,
+        });
+
+        await prisma.attachment.create({
+          data: {
+            filename: file.originalname,
+            url: stored.url,
+            storagePath: stored.key,
+            size: stored.size,
+            documentId: doc.id,
+          },
+        });
+      }
 
       await logAudit(req.user?.id, 'DOCUMENT_INBOUND', 'Document', doc.id, `Inbound ${doc.title}`);
       return res.status(201).json(doc);
@@ -604,8 +975,8 @@ router.post(
 
       // Validar TRD contra proyecto si se envía
       if (metadata?.trdCode) {
-        const project = await prisma.project.findUnique({ where: { id: projectId }, select: { trd: true } });
-        const trdList = project?.trd || [];
+        const project = await prisma.project.findUnique({ where: { id: projectId }, select: { trd: true } as any });
+        const trdList = (project as any)?.trd || [];
         const found = trdList.find((t: any) => (t.code || '').toLowerCase() === (metadata.trdCode || '').toLowerCase());
         if (!found) {
           return res.status(400).json({ error: 'TRD no válida para el proyecto' });
@@ -620,7 +991,10 @@ router.post(
           status: DocumentStatus.DRAFT,
           metadata: metadata ?? {},
           title,
-          content: content || null,
+          content: content ? sanitizeHtml(content, {
+             allowedTags: sanitizeHtml.defaults.allowedTags.concat(['img']),
+             allowedAttributes: { ...sanitizeHtml.defaults.allowedAttributes, img: ['src'] }
+          }) : null,
           retentionDate,
           isPhysicalOriginal: !!isPhysicalOriginal,
           physicalLocationId,
@@ -629,11 +1003,328 @@ router.post(
         }
       });
 
+      // --- TEMPLATE GENERATION ---
+      // --- TEMPLATE GENERATION (DIRECT DOCX) ---
+      if (type === DocumentType.OUTBOUND || type === 'OUTBOUND') {
+          try {
+               console.log("Generating DOCX directly for:", title);
+               
+               const docx = new WordDocument({
+                styles: {
+                    default: {
+                        document: {
+                            run: {
+                                font: "Ubuntu",
+                            },
+                        },
+                        heading1: {
+                            run: {
+                                font: "Ubuntu",
+                            },
+                        },
+                        heading2: {
+                            run: {
+                                font: "Ubuntu",
+                            },
+                        },
+                    },
+                },
+                sections: [{
+                    properties: {},
+                    headers: {
+                        default: new Header({
+                            children: [
+                                new Paragraph({
+                                    children: [
+                                        new TextRun({
+                                            text: "[NOMBRE DE LA EMPRESA]",
+                                            bold: true,
+                                            size: 28, // 14pt
+                                        }),
+                                    ],
+                                    alignment: AlignmentType.CENTER,
+                                }),
+                                new Paragraph({
+                                    children: [
+                                        new TextRun({
+                                            text: "[Departamento / Gerencia]",
+                                            italics: true,
+                                            size: 24, // 12pt
+                                        }),
+                                    ],
+                                    alignment: AlignmentType.CENTER,
+                                }),
+                                new Paragraph({
+                                    text: "", // Spacer
+                                    border: {
+                                        bottom: {
+                                            color: "000000",
+                                            space: 1,
+                                            style: BorderStyle.SINGLE,
+                                            size: 6,
+                                        },
+                                    },
+                                }),
+                            ],
+                        }),
+                    },
+                    footers: {
+                        default: new Footer({
+                            children: [
+                                new Paragraph({
+                                    children: [
+                                        new TextRun({
+                                            text: "Dirección: [DIRECCIÓN DE LA EMPRESA]",
+                                            size: 20, // 10pt
+                                        }),
+                                    ],
+                                    alignment: AlignmentType.CENTER,
+                                }),
+                            ],
+                        }),
+                    },
+                    children: [
+                        // Metadata Table
+                        new Table({
+                            width: {
+                                size: 100,
+                                type: WidthType.PERCENTAGE,
+                            },
+                            rows: [
+                                new TableRow({
+                                    children: [
+                                        new TableCell({
+                                            children: [new Paragraph({ children: [new TextRun({ text: "FECHA:", bold: true })] })],
+                                            width: { size: 20, type: WidthType.PERCENTAGE },
+                                        }),
+                                        new TableCell({
+                                            children: [new Paragraph({ children: [new TextRun(new Date().toLocaleDateString('es-CO'))] })],
+                                        }),
+                                        new TableCell({
+                                            children: [new Paragraph({ children: [new TextRun({ text: "SERIE:", bold: true })] })],
+                                            width: { size: 20, type: WidthType.PERCENTAGE },
+                                        }),
+                                        new TableCell({
+                                            children: [new Paragraph({ children: [new TextRun(series || 'ADM')] })],
+                                        }),
+                                    ],
+                                }),
+                                new TableRow({
+                                    children: [
+                                        new TableCell({
+                                            children: [new Paragraph({ children: [new TextRun({ text: "RADICADO:", bold: true })] })],
+                                        }),
+                                        new TableCell({
+                                            children: [new Paragraph({ children: [new TextRun("BORRADOR")] })],
+                                            columnSpan: 3,
+                                        }),
+                                    ],
+                                }),
+                            ],
+                        }),
+
+                        new Paragraph({ text: "" }), // Spacer
+                        new Paragraph({ text: "" }), // Spacer
+
+                        new Paragraph({ text: "" }), // Spacer
+                        new Paragraph({ text: "" }), // Spacer
+
+                        // Recipient Block
+                        new Paragraph({
+                            children: [
+                                new TextRun({ text: "Señor(a):", bold: true }),
+                            ],
+                        }),
+                        new Paragraph({
+                            children: [
+                                new TextRun({ text: metadata?.recipientName || '', bold: true }),
+                            ],
+                        }),
+                        new Paragraph({
+                            children: [
+                                new TextRun(metadata?.recipientRole || ''),
+                            ],
+                        }),
+                        new Paragraph({
+                            children: [
+                                new TextRun(metadata?.recipientCompany || ''),
+                            ],
+                        }),
+                        new Paragraph({
+                            children: [
+                                new TextRun(metadata?.recipientAddress || ''),
+                            ],
+                        }),
+
+                        new Paragraph({ text: "" }), // Spacer
+                        new Paragraph({ text: "" }), // Spacer
+
+                        // Title/Subject
+                        new Paragraph({
+                            children: [
+                                new TextRun({
+                                    text: `REF: ${title || 'Sin Título'}`,
+                                    bold: true,
+                                    size: 24,
+                                }),
+                            ],
+                            alignment: AlignmentType.RIGHT,
+                        }),
+
+                        new Paragraph({ text: "" }), // Spacer
+                        new Paragraph({ text: "" }), // Spacer
+
+                        // Body Placeholder
+                        new Paragraph({
+                            children: [
+                                new TextRun("Estimado(a):"),
+                            ],
+                        }),
+                        new Paragraph({ text: "" }),
+                        new Paragraph({
+                            children: [
+                                new TextRun("Por medio de la presente... (Escriba aquí el contenido de su carta)"),
+                            ],
+                        }),
+
+                        new Paragraph({ text: "" }), // Spacer
+                        new Paragraph({ text: "" }), // Spacer
+                        new Paragraph({ text: "" }), // Spacer
+
+                        // Signature Block
+                        new Paragraph({
+                            children: [
+                                new TextRun("Atentamente,"),
+                            ],
+                        }),
+                        new Paragraph({ text: "" }), // Space for signature
+                        new Paragraph({ text: "" }),
+                        new Paragraph({ text: "" }),
+                        new Paragraph({ text: "" }),
+                        new Paragraph({ text: "" }),
+                        new Paragraph({ text: "" }),
+                        new Paragraph({ text: "" }),
+                        new Paragraph({ text: "" }),
+                        
+                        // CC List
+                        ...(metadata?.ccList && Array.isArray(metadata.ccList) && metadata.ccList.length > 0 ? [
+                            new Paragraph({
+                                children: [
+                                    new TextRun({
+                                        text: "Copia: " + metadata.ccList.join(", "),
+                                        size: 16, // 8pt
+                                    }),
+                                ],
+                            }),
+                        ] : []),
+                        
+
+                    ],
+                }],
+            });
+
+            const buffer = await Packer.toBuffer(docx);
+
+            // Save generated file
+            const storage = getStorage();
+            const stored = await storage.save({
+                buffer: buffer,
+                filename: `draft-${doc.id}.docx`,
+                contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            });
+
+            // Update doc with contentUrl
+            console.log("Direct DOCX saved to:", stored.url);
+            
+            await prisma.document.update({
+                where: { id: doc.id },
+                data: { contentUrl: stored.url }
+            });
+            
+            // Return the updated doc with contentUrl
+            return res.status(201).json({ 
+                id: doc.id, 
+                status: doc.status,
+                contentUrl: stored.url,
+                title: doc.title,
+                series: doc.series,
+                metadata: doc.metadata
+            });
+
+           } catch (error) {
+               console.error('Error generating DOCX:', error);
+               // Even if template fails, return the doc (it will be empty/blank in OnlyOffice if url is missing)
+               return res.status(201).json({ id: doc.id, status: doc.status });
+           }
+          }
+
+      // ---------------------------
+
+
       await logAudit(req.user?.id, 'DOCUMENT_CREATE', 'Document', doc.id, `Borrador ${title}`);
       return res.status(201).json({ id: doc.id, status: doc.status });
     } catch (err) {
       console.error('Create draft error:', err);
       return res.status(500).json({ error: 'Failed to create draft' });
+    }
+  }
+);
+
+// POST /documents/:id/preview - generate preview PDF with signature
+router.post(
+  '/:id/preview',
+  checkRole([UserRole.ENGINEER, UserRole.DIRECTOR]),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const doc = await prisma.document.findUnique({ where: { id } });
+      if (!doc) return res.status(404).json({ error: 'Documento no encontrado' });
+
+      console.log(`[Preview] Generating preview for doc ${id}`);
+      console.log(`[Preview] Metadata CC List:`, (doc.metadata as any)?.ccList);
+
+      const signer = await prisma.user.findUnique({ 
+          where: { id: req.user!.id }, 
+          select: { signatureImage: true, fullName: true, role: true } 
+      });
+
+      if (!doc.contentUrl) {
+          return res.status(400).json({ error: 'El documento no tiene contenido generado (DOCX)' });
+      }
+
+      // 1. Convert Word to PDF via OnlyOffice
+      const publicUrl = `http://host.docker.internal:4000${doc.contentUrl}`;
+      console.log('[Preview] Converting to PDF:', publicUrl);
+      
+      let pdfBuffer: Buffer;
+      try {
+          const pdfUrl = await convertToPdf(publicUrl, 'docx', `preview-${doc.id}-${Date.now()}`);
+          const pdfRes = await fetch(pdfUrl);
+          if (!pdfRes.ok) throw new Error('Failed to download converted PDF');
+          pdfBuffer = await pdfRes.buffer();
+      } catch (e) {
+          console.error('[Preview] Conversion failed:', e);
+          return res.status(500).json({ error: 'Error convirtiendo documento a PDF' });
+      }
+
+      // 2. Stamp the PDF (Mock Radicado for Preview)
+      // Pass undefined for signatureImage to avoid showing the actual signature in preview
+      const stampedBuffer = await stampPdf(pdfBuffer, {
+          radicado: 'BORRADOR',
+          date: new Date().toISOString(),
+          attachments: 0,
+          qrData: JSON.stringify({ id: doc.id, preview: true }),
+          signerName: signer?.fullName || 'Nombre del Firmante',
+          signerRole: signer?.role || 'Cargo',
+      }, undefined); // No signature image for preview security
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'inline; filename="preview.pdf"');
+      res.send(stampedBuffer);
+
+    } catch (err) {
+      console.error('Preview error:', err);
+      return res.status(500).json({ error: 'Failed to generate preview' });
     }
   }
 );
@@ -677,13 +1368,10 @@ router.post(
           radicadoCode,
           status: DocumentStatus.RADICADO,
           metadata: {
-            set: {
               signatureMethod: 'DIGITAL',
               signatureImage: signer?.signatureImage || null,
               radicadoAt: new Date().toISOString(),
             },
-          },
-          signatureImage: signer?.signatureImage || null,
           updatedAt: new Date()
         }
       });
@@ -736,27 +1424,77 @@ router.post(
 
       let finalDeadline = (doc.metadata as any)?.deadline || null;
       if (!finalDeadline && (doc.metadata as any)?.requiresResponse) {
-        const project = await prisma.project.findUnique({ where: { id: doc.projectId }, select: { trd: true } });
-        finalDeadline = computeDeadlineFromTrd(doc.metadata, project?.trd);
+        const project = await prisma.project.findUnique({ where: { id: doc.projectId }, select: { trd: true } as any });
+        finalDeadline = computeDeadlineFromTrd(doc.metadata, (project as any)?.trd);
       }
 
-      const signer = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { signatureImage: true } });
+      const signer = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { signatureImage: true, fullName: true, role: true } });
+
+      if (!signer?.signatureImage) {
+        return res.status(400).json({ error: 'No tienes una firma digital configurada. Ve a tu perfil y sube una.' });
+      }
+
+      // --- PDF CONVERSION & STAMPING ---
+      let finalUrl = doc.contentUrl;
+      
+      if (signatureMethod === 'DIGITAL' && doc.contentUrl) {
+          try {
+              // 1. Convert Word to PDF via OnlyOffice
+              // Ensure contentUrl is accessible by OnlyOffice (use host.docker.internal if needed, or public IP)
+              // For local dev with docker, we might need to tweak the URL passed to OnlyOffice
+              // Assuming doc.contentUrl is like /uploads/file.docx
+              const publicUrl = `http://host.docker.internal:4000${doc.contentUrl}`;
+              
+              console.log('Converting to PDF:', publicUrl);
+              const pdfUrl = await convertToPdf(publicUrl, 'docx', `${doc.id}-${Date.now()}`);
+              
+              // 2. Fetch the converted PDF
+              const pdfRes = await fetch(pdfUrl);
+              if (!pdfRes.ok) throw new Error('Failed to download converted PDF');
+              const pdfBuffer = await pdfRes.buffer();
+
+              // 3. Stamp the PDF
+              const stampedBuffer = await stampPdf(pdfBuffer, {
+                  radicado: radicadoCode,
+                  date: new Date().toISOString(),
+                  attachments: 0, // TODO: count attachments
+                  qrData: JSON.stringify({ id: doc.id, radicado: radicadoCode }),
+                  signerName: signer.fullName,
+                  signerRole: signer.role,
+              }, signer?.signatureImage || undefined);
+
+              // 4. Save the stamped PDF
+              const storage = getStorage();
+              const stored = await storage.save({
+                  buffer: stampedBuffer,
+                  filename: `${radicadoCode}.pdf`,
+                  contentType: 'application/pdf'
+              });
+              
+              finalUrl = stored.url;
+              console.log('Stamped PDF saved to:', finalUrl);
+
+          } catch (e) {
+              console.error('Conversion/Stamping failed:', e);
+              // Fallback: don't fail the whole request, but log it. 
+              // Or maybe we SHOULD fail? The user expects a signed PDF.
+              return res.status(500).json({ error: 'Error generando el PDF firmado' });
+          }
+      }
 
       const updated = await prisma.document.update({
         where: { id },
         data: {
           radicadoCode,
           status: finalStatus,
+          contentUrl: finalUrl, // Update contentUrl to the signed PDF
           metadata: {
-            set: {
               ...(doc.metadata as any),
               signatureMethod: signatureMethod || 'DIGITAL',
               signatureImage: signer?.signatureImage || (doc.metadata as any)?.signatureImage || null,
               radicadoAt: new Date().toISOString(),
               deadline: finalDeadline ?? null,
             },
-          },
-          signatureImage: signer?.signatureImage || null,
           updatedAt: new Date(),
         },
       });
@@ -795,12 +1533,10 @@ router.post(
         data: {
           status: DocumentStatus.VOID,
           metadata: {
-            // append void info; merge existing metadata
-            set: {
+              // append void info; merge existing metadata
               voidReason: reason,
               voidedAt: new Date().toISOString()
-            }
-          },
+            },
           updatedAt: new Date()
         }
       });

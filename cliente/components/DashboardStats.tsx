@@ -106,7 +106,7 @@ const DashboardStats: React.FC<DashboardStatsProps> = ({ documents, onShowTransf
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 animate-fade-in">
         
         {/* CARD 1: TOTAL VOLUME */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between group hover:border-blue-300 transition-colors">
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between group hover:border-blue-300 transition-all duration-300 transform hover:-translate-y-1 hover:shadow-lg">
             <div>
             <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Total Docs</p>
             <h3 className="text-2xl font-bold text-slate-800">{totalDocs}</h3>
@@ -118,7 +118,7 @@ const DashboardStats: React.FC<DashboardStatsProps> = ({ documents, onShowTransf
         </div>
 
         {/* CARD 2: BOTTLENECKS */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between group hover:border-orange-300 transition-colors">
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between group hover:border-orange-300 transition-all duration-300 transform hover:-translate-y-1 hover:shadow-lg">
             <div>
             <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Pendientes</p>
             <h3 className="text-2xl font-bold text-slate-800">{pendingCount}</h3>
@@ -130,7 +130,7 @@ const DashboardStats: React.FC<DashboardStatsProps> = ({ documents, onShowTransf
         </div>
 
         {/* CARD 3: IN TRANSIT */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between group hover:border-amber-300 transition-colors">
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between group hover:border-amber-300 transition-all duration-300 transform hover:-translate-y-1 hover:shadow-lg">
             <div>
             <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">En Tránsito</p>
             <h3 className="text-2xl font-bold text-slate-800">{transitCount}</h3>
@@ -146,8 +146,8 @@ const DashboardStats: React.FC<DashboardStatsProps> = ({ documents, onShowTransf
         {/* CARD 4: TRANSFER ALERTS (NEW) */}
         <div 
             onClick={() => transferReadyCount > 0 && onShowTransfers && onShowTransfers()}
-            className={`p-5 rounded-xl border shadow-sm flex items-center justify-between group transition-all cursor-pointer
-                ${transferReadyCount > 0 ? 'bg-purple-50 border-purple-200 hover:border-purple-400 hover:shadow-md' : 'bg-white border-slate-200 opacity-60 cursor-default'}
+            className={`p-5 rounded-xl border shadow-sm flex items-center justify-between group transition-all duration-300 transform hover:-translate-y-1 hover:shadow-lg cursor-pointer
+                ${transferReadyCount > 0 ? 'bg-purple-50 border-purple-200 hover:border-purple-400' : 'bg-white border-slate-200 opacity-60 cursor-default'}
             `}
         >
             <div>

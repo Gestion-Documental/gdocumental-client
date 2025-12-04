@@ -23,8 +23,6 @@ const SignedDocumentView: React.FC<SignedDocumentViewProps> = ({ document, onClo
     setIsDownloading(true);
 
     try {
-        // 1. Capture the DOM element as a canvas
-        // Scale 2 provides retina-like quality for text
         const canvas = await html2canvas(paperRef.current, {
             scale: 2,
             useCORS: true,
@@ -33,19 +31,43 @@ const SignedDocumentView: React.FC<SignedDocumentViewProps> = ({ document, onClo
             backgroundColor: '#ffffff'
         });
 
-        // 2. Convert to Image Data
         const imgData = canvas.toDataURL('image/png');
-
-        // 3. Initialize PDF (A4 Size: 210mm x 297mm)
-        const pdf = new jsPDF('p', 'mm', 'a4');
         
-        const pdfWidth = 210;
-        const pdfHeight = 297;
+        // Determine Page Size
+        const pageSizeKey = (document.metadata?.pageSize as 'A4' | 'LETTER' | 'LEGAL') || 'A4';
+        const PAGE_SIZES = {
+            A4: { width: 210, height: 297 },
+            LETTER: { width: 216, height: 279 },
+            LEGAL: { width: 216, height: 356 }
+        };
+        const sizeConfig = PAGE_SIZES[pageSizeKey] || PAGE_SIZES.A4;
 
-        // 4. Add Image to PDF
-        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+        // Initialize PDF with custom size
+        const pdf = new jsPDF({
+            orientation: 'p',
+            unit: 'mm',
+            format: [sizeConfig.width, sizeConfig.height]
+        });
+        
+        const imgWidth = sizeConfig.width;
+        const pageHeight = sizeConfig.height;
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        
+        let heightLeft = imgHeight;
+        let position = 0;
 
-        // 5. Save
+        // First page
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+
+        // Subsequent pages
+        while (heightLeft > 0) {
+            position = heightLeft - imgHeight; // Negative offset to show next chunk
+            pdf.addPage([sizeConfig.width, sizeConfig.height]);
+            pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+            heightLeft -= pageHeight;
+        }
+
         const filename = `${document.radicadoCode || 'document'}.pdf`;
         pdf.save(filename);
 
@@ -99,96 +121,19 @@ const SignedDocumentView: React.FC<SignedDocumentViewProps> = ({ document, onClo
 
       <div className="flex flex-col lg:flex-row gap-8 flex-1 overflow-hidden">
           
-          {/* LEFT: The Paper Preview */}
-          <div className="flex-1 bg-slate-200 rounded-xl overflow-y-auto p-8 flex justify-center shadow-inner">
-            <div ref={paperRef} className="bg-white w-[210mm] min-h-[297mm] shadow-2xl relative p-[20mm] flex flex-col">
-                
-                {/* Watermark */}
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-[0.03] pointer-events-none select-none">
-                    <svg width="400" height="400" viewBox="0 0 100 100">
-                        <text x="50" y="50" fontSize="20" fontWeight="bold" transform="rotate(-45 50 50)" textAnchor="middle" fill="currentColor">OFFICIAL COPY</text>
-                    </svg>
-                </div>
-
-                {/* Header (Simulated for template) */}
-                <div className="mb-8 border-b-2 border-slate-900 pb-4 flex justify-between items-end">
-                    <div>
-                        <h1 className="text-2xl font-serif font-bold text-slate-900 uppercase tracking-widest">Nexus<span className="text-blue-900">DMS</span></h1>
-                        <p className="text-xs text-slate-500">Enterprise Document Management</p>
-                    </div>
-                    <div className="text-right">
-                        <p className="text-xs font-bold text-slate-400 uppercase">Radicado Oficial</p>
-                        <p className="text-lg font-mono font-bold text-slate-900">{document.radicadoCode}</p>
-                    </div>
-                </div>
-
-                {/* Content */}
-                <div 
-                className="text-justify text-sm leading-7 whitespace-pre-wrap font-serif min-h-[400px]"
-                dangerouslySetInnerHTML={{ __html: sanitizeHtml(document.content) }}
+          {/* LEFT: The Paper Preview (Now showing actual PDF) */}
+          <div className="flex-1 bg-slate-200 rounded-xl overflow-hidden shadow-inner flex flex-col min-h-[90vh]">
+            {document.contentUrl ? (
+                <iframe 
+                    src={`http://localhost:4000${document.contentUrl}`} 
+                    className="w-full h-full border-none"
+                    title="Documento Firmado"
                 />
-
-                {/* ATTACHMENT LIST STAMP (Auto-Injected) */}
-                {attachments.length > 0 && (
-                    <div className="mb-6 mt-4 border-t border-dashed border-slate-300 pt-4">
-                        <p className="text-xs font-bold font-sans text-slate-800 mb-2 uppercase">Anexos Relacionados:</p>
-                        <ul className="text-xs font-mono text-slate-600 list-disc pl-4 space-y-1">
-                            {attachments.map(att => (
-                                <li key={att.id}>
-                                    {att.name} <span className="opacity-50">({att.size})</span>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-                )}
-
-                {/* Footer Area */}
-                <div className="mt-auto relative">
-                    <div className="flex justify-between items-end">
-                    
-                        {/* Signature Stamp */}
-                        <div className="relative">
-                            {document.signatureImage && (
-                                <img 
-                                    src={document.signatureImage} 
-                                    alt="Signature" 
-                                    className="h-20 -mb-4 ml-4 opacity-90 transform -rotate-2"
-                                />
-                            )}
-                            <div className="border-t border-slate-900 w-48 mt-2 pt-1 text-center">
-                                <p className="text-xs font-bold uppercase text-slate-900">Firma Autorizada</p>
-                                <p className="text-[10px] text-slate-500">Firmado digitalmente via NexusDMS</p>
-                            </div>
-                        </div>
-
-                        {/* QR Stamp */}
-                        <div className="flex gap-3 items-end opacity-90">
-                            <div className="text-right">
-                                <p className="text-[9px] text-slate-400 font-mono mb-0.5">Hash: {document.securityHash?.substring(0,16)}...</p>
-                                <p className="text-[9px] text-slate-400 font-mono">{new Date(document.updatedAt || '').toLocaleString()}</p>
-                            </div>
-                            <div className="w-20 h-20 bg-white p-1 border border-slate-900">
-                                    {/* CSS QR Simulation */}
-                                    <div className="w-full h-full bg-white grid grid-cols-6 grid-rows-6 gap-0.5">
-                                        {[...Array(36)].map((_,i) => (
-                                            <div key={i} className={`w-full h-full ${Math.random() > 0.4 ? 'bg-black' : 'bg-transparent'} ${(i<7 || i > 28 || (i+1)%6===0) ? 'bg-black' : ''}`}></div>
-                                        ))}
-                                    </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    {/* Carbon Copy (CC) List - Footer Stamp */}
-                    {ccList.length > 0 && (
-                        <div className="mt-8 pt-2 border-t border-slate-100">
-                            <p className="text-[10px] text-slate-600 font-sans leading-relaxed">
-                                <strong className="font-bold text-slate-800">c.c.</strong> {ccList.join(', ')}
-                            </p>
-                        </div>
-                    )}
+            ) : (
+                <div className="flex-1 flex items-center justify-center text-slate-500">
+                    <p>No hay vista previa disponible.</p>
                 </div>
-
-            </div>
+            )}
           </div>
 
           {/* RIGHT: Audit Log Sidebar */}

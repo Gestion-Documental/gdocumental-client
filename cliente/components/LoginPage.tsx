@@ -39,23 +39,23 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
     <div className="min-h-screen flex bg-slate-50">
       {/* LEFT: Branding Gradient */}
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden min-h-screen">
-        <div className="absolute inset-0 bg-gradient-to-br from-[#4B8DFF] via-[#4B8DFF] to-[#5EE0C8]" />
+        <div className="absolute inset-0 bg-gradient-to-br from-brand-600 via-brand-500 to-emerald-400 animate-gradient-xy" />
         <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=2000&q=80')] bg-cover bg-center mix-blend-overlay opacity-70" />
         <div className="absolute inset-0 bg-black/25" />
-        <div className="relative z-10 flex flex-col justify-center px-12 text-white space-y-4">
-           <div className="w-16 h-16 bg-white/15 rounded-2xl flex items-center justify-center backdrop-blur-sm shadow-lg">
-             <img src="/src/logos/radika_favicon.png" alt="Radika" className="w-12 h-12 rounded-lg" />
+        <div className="relative z-10 flex flex-col justify-center px-12 text-white space-y-6 animate-fade-in">
+           <div className="w-20 h-20 bg-white/10 rounded-2xl flex items-center justify-center backdrop-blur-md shadow-2xl border border-white/20 animate-scale-in">
+             <img src="/src/logos/radika_favicon.png" alt="Radika" className="w-14 h-14 drop-shadow-lg" />
           </div>
-          <h1 className="text-5xl font-bold tracking-tight drop-shadow-lg" style={{ fontFamily: 'Montserrat, Inter, sans-serif' }}>Radika</h1>
-          <p className="text-xl text-white/90 max-w-lg leading-relaxed drop-shadow">
-            Gestión documental y radicación inteligente, trazabilidad en tiempo real y cumplimiento ISO 9001 garantizado.
+          <h1 className="text-6xl font-bold tracking-tight drop-shadow-lg" style={{ fontFamily: 'Montserrat, Inter, sans-serif' }}>Radika</h1>
+          <p className="text-xl text-white/90 max-w-lg leading-relaxed drop-shadow-md font-light">
+            Gestión documental inteligente. Trazabilidad en tiempo real. Cumplimiento ISO 9001.
           </p>
         </div>
       </div>
 
       {/* RIGHT: Login Form */}
-      <div className="w-full lg:w-1/2 flex flex-col justify-center items-center bg-white p-8">
-         <div className="w-full max-w-md">
+      <div className="w-full lg:w-1/2 flex flex-col justify-center items-center bg-white p-8 relative">
+         <div className="w-full max-w-md animate-slide-up">
             <div className="text-center mb-10 lg:text-left">
                 <h2 className="text-3xl font-bold text-slate-900" style={{ fontFamily: 'Montserrat, Inter, sans-serif' }}>Iniciar Sesión</h2>
                 <p className="text-slate-500 mt-2">Acceda a su cuenta corporativa segura.</p>
@@ -109,7 +109,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                 <button 
                   type="submit"
                   disabled={isLoading}
-                  className="w-full bg-[#4B8DFF] hover:bg-[#3B7AE6] text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-500/30 transition-all flex items-center justify-center gap-2"
+                  className="w-full bg-brand-600 hover:bg-brand-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-brand-500/30 hover:shadow-brand-500/50 transition-all transform hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-2"
                 >
                   {isLoading ? (
                     <>

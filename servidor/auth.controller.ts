@@ -38,38 +38,38 @@ router.post('/login', async (req: Request, res: Response) => {
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) return res.status(401).json({ error: 'Usuario no encontrado' });
 
-    if (user.lockedUntil && user.lockedUntil > new Date()) {
+    if ((user as any).lockedUntil && (user as any).lockedUntil > new Date()) {
       return res.status(403).json({ error: 'Account locked. Try again later.' });
     }
 
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) {
-      const attempts = user.failedLoginAttempts + 1;
+      const attempts = (user as any).failedLoginAttempts + 1;
       let lockedUntil: Date | null = null;
       if (attempts >= 5) {
         lockedUntil = new Date(Date.now() + 15 * 60 * 1000); // Lock for 15 minutes
       }
       await prisma.user.update({
         where: { email },
-        data: { failedLoginAttempts: attempts, lockedUntil },
+        data: { failedLoginAttempts: attempts, lockedUntil } as any,
       });
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
 
     await prisma.user.update({
       where: { email },
-      data: { failedLoginAttempts: 0, lockedUntil: null },
+      data: { failedLoginAttempts: 0, lockedUntil: null } as any,
     });
 
     const token = jwt.sign(
       { sub: user.id, email: user.email, role: user.role },
       JWT_SECRET,
-      { expiresIn: JWT_ACCESS_EXPIRES },
+      { expiresIn: JWT_ACCESS_EXPIRES } as any,
     );
     const refreshToken = jwt.sign(
-      { sub: user.id, tokenVersion: user.tokenVersion || 0 },
+      { sub: user.id, tokenVersion: (user as any).tokenVersion || 0 },
       JWT_REFRESH_SECRET,
-      { expiresIn: JWT_REFRESH_EXPIRES },
+      { expiresIn: JWT_REFRESH_EXPIRES } as any,
     );
 
     await logAudit(user.id, 'LOGIN', `Login ${user.email}`);
@@ -109,7 +109,7 @@ router.post('/refresh', async (req: Request, res: Response) => {
     const token = jwt.sign(
       { sub: user.id, email: user.email, role: user.role },
       JWT_SECRET,
-      { expiresIn: JWT_ACCESS_EXPIRES },
+      { expiresIn: JWT_ACCESS_EXPIRES } as any,
     );
     return res.json({ token, user: { ...user, signatureUrl: user.signatureImage || undefined, securityPin: user.signaturePin || undefined } });
   } catch (err) {

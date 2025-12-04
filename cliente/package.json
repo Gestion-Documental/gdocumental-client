@@ -6,11 +6,15 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "cypress run",
+    "cypress:open": "cypress open"
   },
   "dependencies": {
     "@fontsource/inter": "^5.1.1",
     "@fontsource/montserrat": "^5.2.8",
+    "@nutrient-sdk/document-authoring": "^1.9.1",
+    "@onlyoffice/document-editor-react": "^2.1.1",
     "@types/dompurify": "^3.0.5",
     "crypto": "^1.0.1",
     "dompurify": "^3.3.0",
@@ -26,6 +30,7 @@
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
     "autoprefixer": "^10.4.20",
+    "cypress": "^15.7.0",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "typescript": "~5.8.2",

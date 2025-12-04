@@ -76,9 +76,9 @@ router.delete('/:id', checkRole(['SUPER_ADMIN'] as any), async (req: Authenticat
 router.get('/:id/trd', checkRole([UserRole.ENGINEER, UserRole.DIRECTOR, UserRole.SUPER_ADMIN]), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const project = await prisma.project.findUnique({ where: { id }, select: { trd: true } });
+    const project = await prisma.project.findUnique({ where: { id }, select: { trd: true } as any });
     if (!project) return res.status(404).json({ error: 'Proyecto no encontrado' });
-    res.json(project.trd || []);
+    res.json((project as any).trd ?? []);
   } catch (error) {
     console.error('Get TRD error:', error);
     res.status(500).json({ error: 'Failed to get TRD' });
@@ -94,10 +94,10 @@ router.put('/:id/trd', checkRole([UserRole.DIRECTOR, UserRole.SUPER_ADMIN]), asy
     }
     const updated = await prisma.project.update({
       where: { id },
-      data: { trd },
-      select: { id: true, trd: true },
+      data: { trd } as any,
+      select: { id: true, trd: true } as any,
     });
-    res.json(updated.trd || []);
+    res.json((updated as any).trd ?? []);
   } catch (error) {
     console.error('Update TRD error:', error);
     res.status(500).json({ error: 'Failed to update TRD' });

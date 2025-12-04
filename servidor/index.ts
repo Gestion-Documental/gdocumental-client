@@ -8,6 +8,7 @@ import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import projectRouter from './project.controller';
 import userRouter from './user.controller';
+import onlyofficeRouter from './onlyoffice.controller';
 import path from 'path';
 
 dotenv.config();
@@ -17,6 +18,10 @@ const port = Number(process.env.PORT) || 4000;
 const prisma = new PrismaClient();
 
 app.use(cors());
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
+  next();
+});
 app.use(express.json());
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
@@ -30,6 +35,7 @@ app.get('/health', (_req, res) => {
 
 // Rutas protegidas
 app.use('/documents', authMiddleware, documentRouter);
+app.use('/onlyoffice', onlyofficeRouter);
 
 // Error handling middleware
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
@@ -78,6 +84,6 @@ if (process.env.NODE_ENV !== 'production') {
   ensureSeedData().catch((err) => console.error('Seed error:', err));
 }
 
-app.listen(port, () => {
+app.listen(port, '0.0.0.0', () => {
   console.log(`Gestion documental API corriendo en el puerto ${port}`);
 });
