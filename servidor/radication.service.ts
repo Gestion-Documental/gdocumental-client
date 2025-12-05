@@ -3,7 +3,7 @@ import { PrismaClient, Prisma } from '@prisma/client';
 const prisma = new PrismaClient();
 
 type SeriesCode = 'ADM' | 'TEC';
-type TypeCode = 'IN' | 'OUT';
+type TypeCode = 'IN' | 'OUT' | 'INT';
 
 /**
  * Transactional Radicado generator
