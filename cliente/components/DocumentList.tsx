@@ -3,7 +3,8 @@
 import React, { useState, useMemo } from 'react';
 import { Document, DocumentStatus, DocumentType, DateRangeOption, SeriesType, UserRole } from '../types';
 import SearchToolbar from './SearchToolbar';
-import { downloadLabel, updateStatus, uploadAttachment, fetchDocument } from '../services/api';
+import { downloadLabel, updateStatus, uploadAttachment, fetchDocument, API_URL } from '../services/api';
+import { useToast } from './ToastProvider';
 
 interface DocumentListProps {
   documents: Document[];
@@ -33,6 +34,7 @@ const DocumentList: React.FC<DocumentListProps> = ({
     token,
     onReplaceDoc
 }) => {
+  const { addToast } = useToast();
   const [activeTab, setActiveTab] = useState<TabOption>('ALL');
   
   const [searchQuery, setSearchQuery] = useState('');
@@ -43,10 +45,13 @@ const DocumentList: React.FC<DocumentListProps> = ({
 
   const pendingCount = documents.filter(d => d.status === DocumentStatus.PENDING_APPROVAL).length;
 
-  const getStatusColor = (status: DocumentStatus) => {
-    switch (status) {
+  const getStatusColor = (doc: Document) => {
+    if (doc.status === DocumentStatus.DRAFT && doc.metadata?.rejectionReason) {
+        return 'bg-red-50 text-red-700 border-red-200';
+    }
+    switch (doc.status) {
       case DocumentStatus.RADICADO: return 'bg-green-100 text-green-800 border-green-200';
-      case DocumentStatus.PENDING_SCAN: return 'bg-orange-100 text-orange-800 border-orange-200'; 
+      case DocumentStatus.PENDING_SCAN: return 'bg-emerald-100 text-emerald-800 border-emerald-200'; // Changed to Emerald for Approved
       case DocumentStatus.DRAFT: return 'bg-slate-100 text-slate-700 border-slate-200 dashed border';
       case DocumentStatus.PENDING_APPROVAL: return 'bg-yellow-50 text-yellow-800 border-yellow-200';
       case DocumentStatus.ARCHIVED: return 'bg-slate-100 text-slate-600 border-slate-200';
@@ -274,7 +279,74 @@ const DocumentList: React.FC<DocumentListProps> = ({
     }
   };
 
+  const handlePreview = async (doc: Document) => {
+      if (!token) return;
+      try {
+          addToast('Generando vista previa...', 'info');
+          // We need to import previewDocument from api.ts
+          // But wait, previewDocument is not exported in the previous view of api.ts?
+          // I need to check api.ts exports.
+          // Assuming it is exported or I will add it.
+          // Actually, let's check api.ts first.
+          // If not available, I'll use fetch directly.
+          
+          const res = await fetch(`${API_URL}/documents/${doc.id}/preview`, {
+              method: 'POST',
+              headers: {
+                  'Authorization': `Bearer ${token}`
+              }
+          });
+          
+          if (!res.ok) throw new Error('Error generando vista previa');
+          
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          window.open(url, '_blank');
+      } catch (e: any) {
+          console.error(e);
+          addToast(e.message, 'error');
+      }
+  };
+
+  const handleOnlineRadication = async (doc: Document) => {
+      if (!confirm('¿Está seguro de radicar este documento en línea usando la firma autorizada por el Director?')) return;
+      try {
+          const res = await fetch(`${API_URL}/documents/sign`, {
+              method: 'POST',
+              headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({
+                  documentId: doc.id,
+                  signaturePin: 'AUTHORIZED' 
+              })
+          });
+
+          if (!res.ok) {
+              const err = await res.json();
+              throw new Error(err.error || 'Error al radicar');
+          }
+
+          const data = await res.json();
+          addToast(`Documento radicado: ${data.radicadoCode}`, 'success');
+          
+          // Fetch updated doc to refresh list
+          if (token) {
+              const updatedDoc = await fetchDocument(token, doc.id);
+              if (onReplaceDoc && updatedDoc) {
+                  onReplaceDoc(updatedDoc);
+              }
+          }
+      } catch (e: any) {
+          console.error(e);
+          addToast(e.message, 'error');
+      }
+  };
+
   const handleUploadScanAndClose = async (doc: Document, file: File) => {
+      // ... existing code ... (I need to keep the existing code, so I will target the start of handleUploadScanAndClose)
+
     if (!token) return;
     try {
       await uploadAttachment(token, doc.id, file);
@@ -451,7 +523,7 @@ const DocumentList: React.FC<DocumentListProps> = ({
                         const isVoid = doc.status === DocumentStatus.VOID;
                         
                         // Parties
-                        const authorName = doc.author?.fullName || doc.metadata?.sender || 'Sistema';
+                        const authorName = doc.metadata?.sender || doc.author?.fullName || 'Sistema';
                         const recipientName = doc.metadata?.recipientName || doc.metadata?.recipient || '—';
                         const authorInitials = authorName
                           ? authorName.split(' ').map((n: string) => n[0]).join('').substring(0,2).toUpperCase()
@@ -469,7 +541,9 @@ const DocumentList: React.FC<DocumentListProps> = ({
                                     {doc.radicadoCode}
                                     </span>
                                 ) : (
-                                    <span className="text-slate-400 italic">-- BORRADOR --</span>
+                                    <span className="text-slate-400 italic">
+                                        {doc.status === DocumentStatus.PENDING_SCAN ? '-- POR RADICAR --' : '-- BORRADOR --'}
+                                    </span>
                                 )}
                             </div>
                         </td>
@@ -506,8 +580,13 @@ const DocumentList: React.FC<DocumentListProps> = ({
                         </td>
                         <td className="px-6 py-4 align-top">
                             <div className="flex flex-col gap-2 items-start">
-                                <span className={`px-2.5 py-1 rounded-full text-xs font-semibold border whitespace-nowrap ${getStatusColor(doc.status)}`}>
-                                {doc.status.replace('_', ' ')}
+                                <span className={`px-2.5 py-1 rounded-full text-xs font-semibold border whitespace-nowrap ${getStatusColor(doc)}`} title={doc.metadata?.rejectionReason ? `Motivo: ${doc.metadata.rejectionReason}` : ''}>
+                                {(() => {
+                                    if (doc.status === DocumentStatus.PENDING_SCAN) return 'APROBADO';
+                                    if (doc.status === DocumentStatus.DRAFT && doc.metadata?.rejectionReason) return 'DEVUELTO';
+                                    if (doc.status === DocumentStatus.PENDING_APPROVAL) return 'POR APROBAR';
+                                    return doc.status.replace('_', ' ');
+                                })()}
                                 </span>
                                 {renderDeadlineBadge(doc)}
                             </div>
@@ -564,21 +643,39 @@ const DocumentList: React.FC<DocumentListProps> = ({
                                 </button>
                                 
                                 {doc.status === DocumentStatus.DRAFT && (
-                                    <button
-                                        onClick={() => onEdit(doc)}
-                                        className="text-xs bg-slate-800 hover:bg-slate-900 text-white font-medium px-3 py-1.5 rounded transition-colors flex items-center gap-2"
-                                    >
-                                        Edit
-                                    </button>
+                                    <>
+                                        <button
+                                            onClick={() => handlePreview(doc)}
+                                            className="p-2 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all"
+                                            title="Vista Previa PDF"
+                                        >
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                        </button>
+                                        <button
+                                            onClick={() => onEdit(doc)}
+                                            className="text-xs bg-slate-800 hover:bg-slate-900 text-white font-medium px-3 py-1.5 rounded transition-colors flex items-center gap-2"
+                                        >
+                                            Edit
+                                        </button>
+                                    </>
                                 )}
 
                                 {doc.status === DocumentStatus.PENDING_APPROVAL && userRole === 'DIRECTOR' && (
-                                    <button
-                                        onClick={() => onEdit(doc)}
-                                        className="text-xs bg-yellow-500 hover:bg-yellow-600 text-white font-medium px-3 py-1.5 rounded transition-colors flex items-center gap-2 shadow-sm"
-                                    >
-                                        Review
-                                    </button>
+                                    <>
+                                        <button
+                                            onClick={() => handlePreview(doc)}
+                                            className="p-2 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all"
+                                            title="Vista Previa PDF"
+                                        >
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                        </button>
+                                        <button
+                                            onClick={() => onEdit(doc)}
+                                            className="text-xs bg-yellow-500 hover:bg-yellow-600 text-white font-medium px-3 py-1.5 rounded transition-colors flex items-center gap-2 shadow-sm"
+                                        >
+                                            Review
+                                        </button>
+                                    </>
                                 )}
 
                                 {doc.status === DocumentStatus.RADICADO && (
@@ -589,6 +686,25 @@ const DocumentList: React.FC<DocumentListProps> = ({
                                   >
                                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v8m0 0l-3-3m3 3l3-3m2 5H7a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v6a2 2 0 01-2 2z" /></svg>
                                   </button>
+                                )}
+
+                                {doc.status === DocumentStatus.PENDING_SCAN && doc.metadata?.signatureAuthorized && (
+                                    <>
+                                        <button
+                                            onClick={() => handlePreview(doc)}
+                                            className="p-2 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all"
+                                            title="Vista Previa PDF"
+                                        >
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                        </button>
+                                        <button
+                                            onClick={() => handleOnlineRadication(doc)}
+                                            className="p-2 text-purple-600 hover:text-purple-800 hover:bg-purple-50 rounded-lg transition-all"
+                                            title="Radicar en Línea (Firma Autorizada)"
+                                        >
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                                        </button>
+                                    </>
                                 )}
 
                                 {doc.type === DocumentType.OUTBOUND && doc.status === DocumentStatus.PENDING_SCAN && (

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DocumentType, DocumentTemplate, Project, Document, DocumentStatus, Comment, Attachment, SeriesType, UserRole, TRDEntry, SignatureMethod } from '../types';
 import { MOCK_CONTACTS } from '../services/mockData';
-import { previewDocument } from '../services/api';
+import { previewDocument, fetchUsers, assignDocument } from '../services/api';
 
 import FileAttachments from './FileAttachments';
 import ContactSelector from './ContactSelector';
@@ -86,6 +86,8 @@ interface DocumentEditorProps {
   forceReadOnly?: boolean;
   token?: string; // Add token prop
   onDocumentUpdated?: (doc: Document) => void;
+  currentUserName?: string;
+  currentUserId?: string;
 }
 
 const normalizeAttachments = (doc?: Document | null): Attachment[] => {
@@ -105,7 +107,7 @@ const normalizeAttachments = (doc?: Document | null): Attachment[] => {
 
 import OnlyOfficeEditor, { OnlyOfficeEditorRef } from './OnlyOfficeEditor';
 
-const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToDoc, existingDoc, userRole, onCancel, onSave, onDeleteAttachment, apiBaseUrl, forceReadOnly, token, onDocumentUpdated }) => {
+const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToDoc, existingDoc, userRole, onCancel, onSave, onDeleteAttachment, apiBaseUrl, forceReadOnly, token, onDocumentUpdated, currentUserName, currentUserId }) => {
 
   const { addToast } = useToast();
   const editorRef = useRef<OnlyOfficeEditorRef>(null);
@@ -137,6 +139,9 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
   const [showRadicationModal, setShowRadicationModal] = useState(false);
   const [signaturePin, setSignaturePin] = useState('');
   const [isWizardOpen, setIsWizardOpen] = useState(!existingDoc); // Open wizard if new doc
+  const [showApprovalModal, setShowApprovalModal] = useState(false);
+  const [authorizeSignature, setAuthorizeSignature] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
 
   // ... (existing state)
@@ -182,6 +187,17 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
   const [recipientRole, setRecipientRole] = useState(existingDoc?.metadata?.recipientRole || '');
   const [recipientCompany, setRecipientCompany] = useState(existingDoc?.metadata?.recipientCompany || '');
   const [recipientAddress, setRecipientAddress] = useState(existingDoc?.metadata?.recipientAddress || '');
+
+  // Assignment State
+  const [users, setUsers] = useState<any[]>([]);
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [selectedDirectorId, setSelectedDirectorId] = useState('');
+
+  useEffect(() => {
+      if (userRole === 'ENGINEER') {
+          fetchUsers(token || '').then(setUsers).catch(console.error);
+      }
+  }, [userRole, token]);
 
   const currentStatus = existingDoc?.status || DocumentStatus.DRAFT;
   const isFinalized =
@@ -383,7 +399,11 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
       };
       const updatedComments = [...comments, rejectComment];
       setComments(updatedComments);
-      handleSave({ forceStatus: DocumentStatus.DRAFT, customComments: updatedComments });
+      handleSave({ 
+          forceStatus: DocumentStatus.DRAFT, 
+          customComments: updatedComments,
+          customMetadata: { rejectionReason: reason }
+      });
   };
 
   const stripHtml = (html: string) => {
@@ -393,27 +413,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
   }
 
   const handleApproveWithAudit = () => {
-     let commentsToSend = [...comments];
-     
-     if (userRole === 'DIRECTOR' && hasDirectorChanges) {
-         const cleanOriginal = stripHtml(originalContent);
-         const cleanModified = stripHtml(content);
-
-         const auditComment: Comment = {
-             id: `audit-${Date.now()}`,
-             author: 'AUDITORÍA',
-             role: 'SYSTEM',
-             text: `⚠️ AUDITORÍA: El Director ha realizado correcciones directas sobre la versión original del Ingeniero.`,
-             changes: {
-                 original: cleanOriginal,
-                 modified: cleanModified
-             },
-             createdAt: new Date().toISOString()
-         };
-         commentsToSend.push(auditComment);
-     }
-
-     handleSave({ shouldFinalize: true, customComments: commentsToSend });
+      setShowApprovalModal(true);
   };
 
   // Nutrient Toggle
@@ -422,7 +422,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
 
   // ... (rest of the component)
 
-  const handleSave = async (options: { shouldFinalize?: boolean, forceStatus?: DocumentStatus, customComments?: Comment[], file?: File }) => {
+  const handleSave = async (options: { shouldFinalize?: boolean, forceStatus?: DocumentStatus, customComments?: Comment[], file?: File, customMetadata?: any }) => {
     const nextStatus = options.forceStatus || currentStatus;
     
     // Prepare Metadata
@@ -439,8 +439,13 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
         requiresResponse: trdOptions.find(t => t.code === trdCode)?.responseDays ? true : false,
         deadline: trdOptions.find(t => t.code === trdCode)?.responseDays 
             ? new Date(Date.now() + (trdOptions.find(t => t.code === trdCode)?.responseDays || 15) * 86400000).toISOString() 
-            : null,
-        securityHash: `${Date.now()}-${Math.random().toString(36).substring(7)}` // Simple hash simulation
+            : undefined,
+        securityHash: `${Date.now()}-${Math.random().toString(36).substring(7)}`, // Simple hash simulation
+        comments: options.customComments || comments,
+        projectedBy: existingDoc?.metadata?.projectedBy || (userRole === 'ENGINEER' ? currentUserName : undefined),
+        sender: existingDoc?.metadata?.sender || (userRole === 'ENGINEER' ? currentUserName : undefined),
+        signer: existingDoc?.metadata?.signer || (userRole === 'DIRECTOR' ? currentUserName : undefined),
+        ...(options.customMetadata || {})
     };
 
     const formData = new FormData();
@@ -464,9 +469,11 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
 
     try {
         let savedDoc;
-        if (existingDoc?.id) {
+        const docId = existingDoc?.id || activeDoc?.id;
+
+        if (docId) {
             // Update existing
-            const res = await fetch(`${apiBaseUrl}/documents/${existingDoc.id}`, {
+            const res = await fetch(`${apiBaseUrl}/documents/${docId}`, {
                 method: 'PUT',
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -479,7 +486,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
             
             // If status change needed
             if (nextStatus !== currentStatus) {
-                 const res = await fetch(`${apiBaseUrl}/documents/${existingDoc.id}/status`, {
+                 const res = await fetch(`${apiBaseUrl}/documents/${docId}/status`, {
                     method: 'POST',
                     headers: { 
                         'Content-Type': 'application/json',
@@ -487,6 +494,10 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
                     },
                     body: JSON.stringify({ status: nextStatus })
                 });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.error || 'Error actualizando estado');
+                }
                 savedDoc.status = nextStatus;
             }
 
@@ -496,19 +507,25 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
             formData.append('projectId', activeProject.id);
             formData.append('type', docType);
             
-            const res = await fetch(`${apiBaseUrl}/documents/create`, { // Need to check if create supports FormData
+            const res = await fetch(`${apiBaseUrl}/documents/create`, { 
                 method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                },
                 body: formData
             });
              if (!res.ok) throw new Error('Error al crear');
             savedDoc = await res.json();
+            setActiveDoc(savedDoc); // Ensure activeDoc is set after creation
         }
 
         addToast('Documento guardado exitosamente', 'success');
-        if (onSave) onSave(savedDoc);
+        if (onSave) onSave(savedDoc); // Corrected from newDoc to savedDoc
     } catch (error) {
         console.error(error);
         addToast('Error al guardar el documento', 'error');
+    } finally {
+        setIsSaving(false); // Ensure saving state is reset
     }
   };
 
@@ -620,10 +637,12 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
   // ... (handlers)
 
   const handleCreateOrUpdate = async () => {
+      if (isSaving) return;
       if (!title || !series) {
           addToast('Complete los campos obligatorios', 'error');
           return;
       }
+      setIsSaving(true);
       try {
           const payload = {
               projectId: activeProject.id,
@@ -679,6 +698,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
       } catch (e) {
           console.error(e);
           addToast('Error al procesar documento', 'error');
+      } finally {
+          setIsSaving(false);
       }
   };
 
@@ -700,15 +721,33 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
       }
   };
 
+  const handleApproveAndReturn = async () => {
+      const metadata = { ...activeDoc?.metadata };
+      if (authorizeSignature) {
+          metadata.signatureAuthorized = true;
+          metadata.signerId = currentUserId; 
+      }
+
+      await handleSave({ 
+          forceStatus: DocumentStatus.PENDING_SCAN,
+          customMetadata: metadata
+      });
+      setShowApprovalModal(false);
+  };
+
   return (
     <div className="flex flex-row h-full gap-0 bg-slate-100 rounded-xl overflow-hidden border border-slate-200 shadow-inner animate-fade-in relative">
       
       {/* LEFT SIDEBAR: METADATA & CONFIG */}
-      <div className={`${isMetadataOpen ? 'w-80' : 'w-0'} transition-all duration-300 bg-white border-r border-slate-200 flex flex-col overflow-hidden relative z-20`}>
+      <div className={`${isMetadataOpen ? 'w-80' : 'w-0'} transition-all duration-300 bg-white border-r border-slate-200 flex flex-col overflow-hidden relative z-30`}>
           <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center min-w-[320px]">
               <h3 className="font-bold text-slate-700">Configuración</h3>
-              <button onClick={() => setIsMetadataOpen(false)} className="text-slate-400 hover:text-slate-600">
-                  ✕
+              <button 
+                  onClick={() => setIsMetadataOpen(false)} 
+                  className="text-slate-400 hover:text-slate-600 p-2 hover:bg-slate-100 rounded-full transition-colors relative z-50 cursor-pointer"
+                  title="Cerrar configuración"
+              >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
           </div>
           
@@ -817,9 +856,10 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
               <div className="flex flex-col gap-2">
                   <button 
                       onClick={handleCreateOrUpdate}
-                      className="w-full py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
+                      disabled={isSaving}
+                      className={`w-full py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2 ${isSaving ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
-                      <span>{activeDoc ? '💾 Guardar Cambios' : '⚡ Generar Documento'}</span>
+                      <span>{isSaving ? 'Guardando...' : (activeDoc ? '💾 Guardar Cambios' : '⚡ Generar Documento')}</span>
                   </button>
                   
                   <button 
@@ -871,14 +911,21 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
                 </button>
                 
                 {userRole === 'ENGINEER' && currentStatus === DocumentStatus.DRAFT && (
-                    <button 
-                        onClick={() => {
-                            if (confirm('¿Enviar a revisión?')) handleSave({ forceStatus: DocumentStatus.PENDING_APPROVAL });
-                        }}
-                        className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-indigo-700 flex items-center gap-1"
-                    >
-                        <span>📤</span> Enviar
-                    </button>
+                    <>
+                        <button 
+                            onClick={handlePreview}
+                            className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-slate-200 flex items-center gap-1 border border-slate-300"
+                            title="Ver cómo quedaría el PDF"
+                        >
+                            <span>👁️</span> Vista Previa
+                        </button>
+                        <button 
+                            onClick={() => setShowAssignModal(true)}
+                            className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-indigo-700 flex items-center gap-1"
+                        >
+                            <span>📤</span> Enviar
+                        </button>
+                    </>
                 )}
                 
                 {/* Director Actions */}
@@ -890,7 +937,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
                 )}
 
                 {/* Radication */}
-                {userRole === 'DIRECTOR' && currentStatus === DocumentStatus.APPROVED && (
+                {userRole === 'DIRECTOR' && currentStatus === DocumentStatus.PENDING_SCAN && (
                     <button onClick={() => setShowRadicationModal(true)} className="bg-purple-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-purple-700">Radicar</button>
                 )}
             </div>
@@ -917,6 +964,71 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
 
       </div>
 
+      {/* Approval Modal */}
+      {showApprovalModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-[500px] max-w-full">
+            <h3 className="text-lg font-bold text-slate-800 mb-4">Gestionar Aprobación</h3>
+            <p className="text-sm text-slate-600 mb-6">
+              El documento ha sido revisado. Seleccione el siguiente paso en el flujo de trabajo:
+            </p>
+
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={() => {
+                    setShowApprovalModal(false);
+                    setShowRadicationModal(true);
+                }}
+                className="flex items-center gap-3 p-4 border rounded-lg hover:bg-slate-50 transition-colors text-left group"
+              >
+                <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shrink-0 group-hover:bg-blue-200">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                </div>
+                <div>
+                    <div className="font-semibold text-slate-800">Firmar y Radicar Ahora</div>
+                    <div className="text-xs text-slate-500">Usted firma digitalmente y el documento se radica de inmediato.</div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => handleApproveAndReturn()}
+                className="flex items-center gap-3 p-4 border rounded-lg hover:bg-slate-50 transition-colors text-left group"
+              >
+                <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0 group-hover:bg-emerald-200">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                </div>
+                <div>
+                    <div className="font-semibold text-slate-800">Aprobar y Devolver al Ingeniero</div>
+                    <div className="text-xs text-slate-500">El documento queda APROBADO. El Ingeniero gestionará la firma física o radicación.</div>
+                </div>
+              </button>
+              
+               <div className="ml-14">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                      <input 
+                          type="checkbox" 
+                          checked={authorizeSignature}
+                          onChange={(e) => setAuthorizeSignature(e.target.checked)}
+                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-slate-700">Autorizar uso de mi Firma Digital (El Ingeniero podrá radicar en línea)</span>
+                  </label>
+              </div>
+
+            </div>
+
+            <div className="flex justify-end gap-2 mt-6 pt-4 border-t">
+              <button
+                onClick={() => setShowApprovalModal(false)}
+                className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* RADICATION MODAL */}
       {showRadicationModal && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -934,6 +1046,67 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
                   <div className="flex gap-3">
                       <button onClick={() => setShowRadicationModal(false)} className="flex-1 py-2.5 text-slate-600 font-bold hover:bg-slate-100 rounded-lg">Cancelar</button>
                       <button onClick={() => handleSign(SignatureMethod.DIGITAL)} className="flex-1 py-2.5 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-700">Confirmar</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* ASSIGNMENT MODAL */}
+      {showAssignModal && (
+          <div className="absolute inset-0 bg-black/50 z-50 flex items-center justify-center animate-fade-in">
+              <div className="bg-white p-6 rounded-xl shadow-2xl w-96">
+                  <h3 className="text-lg font-bold text-slate-800 mb-4">Enviar a Revisión</h3>
+                  <p className="text-sm text-slate-600 mb-4">Seleccione el Director que revisará y firmará este documento:</p>
+                  
+                  <select 
+                      value={selectedDirectorId}
+                      onChange={(e) => setSelectedDirectorId(e.target.value)}
+                      className="w-full p-2 border border-slate-300 rounded mb-6"
+                  >
+                      <option value="">-- Seleccione Director --</option>
+                      {users.filter(u => u.role === 'DIRECTOR').map(u => (
+                          <option key={u.id} value={u.id}>{u.fullName}</option>
+                      ))}
+                  </select>
+
+                  <div className="flex justify-end gap-2">
+                      <button 
+                          onClick={() => setShowAssignModal(false)}
+                          className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded"
+                      >
+                          Cancelar
+                      </button>
+                      <button 
+                          onClick={async () => {
+                              if (!selectedDirectorId) {
+                                  addToast('Seleccione un director', 'error');
+                                  return;
+                              }
+                              try {
+                                  const selectedDirector = users.find(u => u.id === selectedDirectorId);
+                                  await assignDocument(token || '', existingDoc?.id || activeDoc?.id || '', selectedDirectorId);
+                                  
+                                  await handleSave({ 
+                                      forceStatus: DocumentStatus.PENDING_APPROVAL,
+                                      customMetadata: {
+                                          projectedBy: currentUserName,
+                                          sender: selectedDirector?.fullName,
+                                          signer: selectedDirector?.fullName
+                                      }
+                                  });
+                                  
+                                  setShowAssignModal(false);
+                                  addToast('Enviado a revisión', 'success');
+                                  onCancel(); // Close editor
+                              } catch (e) {
+                                  console.error(e);
+                                  addToast('Error al enviar', 'error');
+                              }
+                          }}
+                          className="px-4 py-2 bg-indigo-600 text-white font-bold rounded hover:bg-indigo-700"
+                      >
+                          Enviar
+                      </button>
                   </div>
               </div>
           </div>

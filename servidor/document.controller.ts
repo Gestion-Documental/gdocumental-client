@@ -775,8 +775,8 @@ router.post(
 
       const validTransitions: Record<DocumentStatus, DocumentStatus[]> = {
         DRAFT: [DocumentStatus.PENDING_APPROVAL, DocumentStatus.VOID],
-        PENDING_APPROVAL: [DocumentStatus.RADICADO, DocumentStatus.VOID],
-        PENDING_SCAN: [DocumentStatus.RADICADO, DocumentStatus.VOID],
+        PENDING_APPROVAL: [DocumentStatus.RADICADO, DocumentStatus.VOID, DocumentStatus.PENDING_SCAN, DocumentStatus.DRAFT],
+        PENDING_SCAN: [DocumentStatus.RADICADO, DocumentStatus.VOID, DocumentStatus.PENDING_APPROVAL], // Allow reverting to approval if needed? Or just Radicado/Void
         RADICADO: [DocumentStatus.ARCHIVED, DocumentStatus.VOID],
         ARCHIVED: [DocumentStatus.VOID],
         VOID: [],
@@ -1202,8 +1202,27 @@ router.post(
                         new Paragraph({ text: "" }),
                         new Paragraph({ text: "" }),
                         new Paragraph({ text: "" }),
+                        
+                        // Signer Name & Role - REMOVED to avoid overlap with stampPdf
+                        // The system will stamp the signature, name, and role automatically.
                         new Paragraph({ text: "" }),
                         new Paragraph({ text: "" }),
+                        new Paragraph({ text: "" }),
+
+                        new Paragraph({ text: "" }),
+
+                        // Projected By
+                        ...(metadata?.projectedBy ? [
+                            new Paragraph({
+                                children: [
+                                    new TextRun({
+                                        text: `Proyectó: ${metadata.projectedBy}`,
+                                        size: 16, // 8pt
+                                    }),
+                                ],
+                            }),
+                        ] : []),
+
                         new Paragraph({ text: "" }),
                         
                         // CC List
@@ -1283,8 +1302,18 @@ router.post(
       console.log(`[Preview] Generating preview for doc ${id}`);
       console.log(`[Preview] Metadata CC List:`, (doc.metadata as any)?.ccList);
 
+      let signerId = req.user!.id;
+      const meta = doc.metadata as any;
+      
+      // Determine correct signer for preview
+      if (meta?.signatureAuthorized && meta?.signerId) {
+          signerId = meta.signerId;
+      } else if (doc.assignedToUserId && (doc.status === 'PENDING_APPROVAL' || doc.status === 'PENDING_SCAN')) {
+          signerId = doc.assignedToUserId;
+      }
+
       const signer = await prisma.user.findUnique({ 
-          where: { id: req.user!.id }, 
+          where: { id: signerId }, 
           select: { signatureImage: true, fullName: true, role: true } 
       });
 
@@ -1329,48 +1358,129 @@ router.post(
   }
 );
 
-// POST /documents/sign - finalize and radicate (directors only)
+// POST /documents/sign - finalize and radicate (directors or authorized engineers)
 router.post(
   '/sign',
-  checkRole([UserRole.DIRECTOR]),
+  checkRole([UserRole.DIRECTOR, UserRole.ENGINEER]),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { documentId, signaturePin } = req.body;
       const userId = req.user!.id;
+      const userRole = req.user!.role;
 
-      // Validate pin
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { signaturePin: true, role: true }
-      });
-
-      if (!user || !user.signaturePin || user.signaturePin !== signaturePin) {
-        return res.status(400).json({ error: 'Invalid signature PIN' });
-      }
-
-      // Fetch doc
+      // Fetch doc first to check authorization
       const doc = await prisma.document.findUnique({
         where: { id: documentId },
-        select: { id: true, projectId: true, series: true, status: true, type: true }
+        select: { id: true, projectId: true, series: true, status: true, type: true, metadata: true }
       });
       if (!doc) return res.status(404).json({ error: 'Document not found' });
-      if (doc.status !== DocumentStatus.DRAFT && doc.status !== DocumentStatus.PENDING_APPROVAL) {
-        return res.status(400).json({ error: 'Document not eligible for signing' });
+
+      let signerId = userId;
+
+      // Authorization Logic
+      if (userRole === UserRole.ENGINEER) {
+          const meta = doc.metadata as any;
+          if (!meta?.signatureAuthorized) {
+              return res.status(403).json({ error: 'No está autorizado para firmar este documento.' });
+          }
+          if (doc.status !== DocumentStatus.PENDING_SCAN) { // Must be Approved
+              return res.status(400).json({ error: 'El documento debe estar APROBADO para ser radicado por el Ingeniero.' });
+          }
+          // Use the Director who authorized it (stored in metadata or assume author? No, author is Engineer)
+          // We should have stored signerId in metadata. If not, we might fail or default to... ?
+          // In handleApproveAndReturn we didn't store signerId, only signatureAuthorized.
+          // But we can assume the Director who approved it is the one who authorized it?
+          // Actually, we don't track who approved it in metadata easily unless we look at workflow.
+          // Let's assume we need to fetch the Director.
+          // For now, let's use the `assignedToUserId` if it was assigned? No, it's assigned to Engineer now.
+          // We should have stored signerId. I will update handleApproveAndReturn to store it.
+          // But for now, let's try to find the Director from the project? Or just fail if not found.
+          
+          if (meta.signerId) {
+              signerId = meta.signerId;
+          } else {
+             // Fallback: Find a Director? No, that's unsafe.
+             // We will update the frontend to send signerId.
+             // For now, let's check if we can get it from workflow?
+             // Too complex. I will update frontend to save signerId.
+             return res.status(400).json({ error: 'Falta información del firmante autorizado.' });
+          }
+
+      } else {
+          // Director Logic
+          const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { signaturePin: true, role: true }
+          });
+
+          if (!user || !user.signaturePin || user.signaturePin !== signaturePin) {
+            return res.status(400).json({ error: 'PIN de firma inválido' });
+          }
+          
+          if (doc.status !== DocumentStatus.DRAFT && doc.status !== DocumentStatus.PENDING_APPROVAL) {
+            return res.status(400).json({ error: 'Documento no elegible para firma (debe estar en Borrador o Por Aprobar)' });
+          }
       }
 
       // Generate radicado atomically
       const radicadoCode = await generateRadicado(doc.projectId, doc.series as any, doc.type === 'INBOUND' ? 'IN' : 'OUT');
 
-      const signer = await prisma.user.findUnique({ where: { id: userId }, select: { signatureImage: true } });
+      const signer = await prisma.user.findUnique({ where: { id: signerId }, select: { signatureImage: true, fullName: true, role: true } });
+      
+      // --- PDF GENERATION & STAMPING ---
+      let finalContentUrl = doc.contentUrl;
+      if (doc.contentUrl) {
+          try {
+              // 1. Convert to PDF
+              const publicUrl = `http://host.docker.internal:4000${doc.contentUrl}`;
+              console.log('[Sign] Converting to PDF:', publicUrl);
+              const pdfUrl = await convertToPdf(publicUrl, 'docx', `signed-${doc.id}-${Date.now()}`);
+              const pdfRes = await fetch(pdfUrl);
+              if (!pdfRes.ok) throw new Error('Failed to download converted PDF');
+              const pdfBuffer = await pdfRes.buffer();
+
+              // 2. Stamp PDF
+              const stampedBuffer = await stampPdf(pdfBuffer, {
+                  radicado: radicadoCode,
+                  date: new Date().toISOString(),
+                  attachments: 0, // TODO: Count attachments
+                  qrData: JSON.stringify({ id: doc.id, radicado: radicadoCode }),
+                  signerName: signer?.fullName || 'Firmante',
+                  signerRole: signer?.role || 'Cargo',
+              }, signer?.signatureImage || undefined);
+
+              // 3. Save Stamped PDF
+              const storage = getStorage();
+              const stored = await storage.save({
+                  buffer: stampedBuffer,
+                  filename: `radicado-${radicadoCode}.pdf`,
+                  contentType: 'application/pdf'
+              });
+              finalContentUrl = stored.url;
+              console.log('[Sign] PDF Saved at:', finalContentUrl);
+
+          } catch (e) {
+              console.error('[Sign] Error generating PDF:', e);
+              // We continue, but contentUrl remains the DOCX (fallback)
+              // Ideally we should fail, but let's not block radication if conversion fails?
+              // No, we should fail because the user expects a signed PDF.
+              throw new Error('Error generando el PDF firmado. Intente nuevamente.');
+          }
+      }
+
       const updated = await prisma.document.update({
         where: { id: documentId },
         data: {
           radicadoCode,
           status: DocumentStatus.RADICADO,
+          contentUrl: finalContentUrl, // Update to PDF URL
           metadata: {
+              ...(doc.metadata as any),
               signatureMethod: 'DIGITAL',
               signatureImage: signer?.signatureImage || null,
               radicadoAt: new Date().toISOString(),
+              radicatedBy: userId,
+              originalContentUrl: doc.contentUrl // Keep reference to DOCX
             },
           updatedAt: new Date()
         }
@@ -1382,7 +1492,7 @@ router.post(
           documentId: documentId,
           userId,
           action: 'APPROVED',
-          comments: 'Firmado digitalmente y radicado',
+          comments: userRole === 'ENGINEER' ? 'Radicado por Ingeniero (Firma Autorizada)' : 'Firmado digitalmente y radicado',
           actedAt: new Date()
         }
       });

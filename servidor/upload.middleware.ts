@@ -3,8 +3,8 @@ import path from 'path';
 import { Request } from 'express';
 
 const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
-const allowedMime = ['application/pdf', 'message/rfc822', 'application/octet-stream'];
-const allowedExt = ['.pdf', '.eml', '.msg'];
+const allowedMime = ['application/pdf', 'message/rfc822', 'application/octet-stream', 'image/jpeg', 'image/png', 'image/webp'];
+const allowedExt = ['.pdf', '.eml', '.msg', '.jpg', '.jpeg', '.png', '.webp'];
 
 // Memory storage so we can forward buffer to OCR or storage service
 const storage = multer.memoryStorage();

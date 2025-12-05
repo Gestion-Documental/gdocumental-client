@@ -197,7 +197,25 @@ const doc = new Document({
             new Paragraph({ text: "" }),
             new Paragraph({ text: "" }),
             
+            new Paragraph({
+                children: [
+                    new TextRun({ text: "{SENDER_NAME}", bold: true }),
+                ],
+            }),
+             new Paragraph({
+                children: [
+                    new TextRun("{SENDER_ROLE}"),
+                ],
+            }),
 
+            new Paragraph({ text: "" }),
+            new Paragraph({ text: "" }),
+
+            new Paragraph({
+                children: [
+                    new TextRun({ text: "Proyectó: {PROJECTED_BY}", size: 16 }), // 8pt
+                ],
+            }),
         ],
     }],
 });

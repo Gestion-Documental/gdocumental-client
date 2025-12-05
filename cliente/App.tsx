@@ -182,90 +182,22 @@ const App: React.FC = () => {
 
   // --- DOCUMENT HANDLERS ---
 
- const handleSaveDocument = async (data: any) => {
-     if (!token) {
-        addToast('Necesitas iniciar sesión', 'error');
-        return;
-    }
-
-    try {
-      const attachmentsToUpload = (data.metadata?.attachments || []).filter((att: any) => att.file);
-      const contentWithRef = (data.content || '').replace(/\[Asunto\]/gi, data.title || '');
-      const metadataClean = {
-         ...(data.metadata || {}),
-         reference: data.title || data.metadata?.reference,
-         attachments: (data.metadata?.attachments || []).map((att: any) => ({
-           id: att.id,
-           name: att.name,
-           type: att.type,
-           size: att.size,
-           url: att.url,
-         }))
-       };
-
-       // Crear o actualizar borrador
-       let docId = editorDoc?.id;
-       if (!docId) {
-         const created = await createDocument(token, {
-         projectId: activeProjectId,
-         type: data.type,
-         series: data.series,
-         title: data.title,
-         content: contentWithRef,
-         metadata: metadataClean,
-         retentionDate: data.retentionDate,
-         isPhysicalOriginal: data.isPhysicalOriginal,
-         physicalLocationId: data.physicalLocationId,
-         });
-         docId = created.id;
-       } else {
-         await updateDocument(token, docId, {
-           title: data.title,
-           content: contentWithRef || data.content,
-           metadata: {
-              ...(editorDoc?.metadata || {}),
-             ...(metadataClean || {}),
-           },
-         });
-       }
-
-       // Subir adjuntos nuevos (solo los que tengan file)
-       if (attachmentsToUpload.length && docId) {
-         for (const att of attachmentsToUpload) {
-           await uploadAttachment(token, docId, att.file);
-         }
-       }
-
-       // Cambiar estado si aplica
-       if (data.forceStatus && docId) {
-         await updateStatus(token, docId, data.forceStatus);
-       }
-
-       // Si hay que finalizar, radicar
-       let updatedDoc: Document | null = null;
-       if (data.shouldFinalize && docId) {
-         updatedDoc = await radicarDocument(token, docId, SignatureMethod.DIGITAL);
-         setSignedDocView(updatedDoc);
-      } else if (docId) {
-        updatedDoc = await fetchDocument(token, docId);
+  const handleSaveDocument = (savedDoc: Document) => {
+      setDocuments(docs => {
+          const exists = docs.some(d => d.id === savedDoc.id);
+          return exists ? docs.map(d => d.id === savedDoc.id ? savedDoc : d) : [savedDoc, ...docs];
+      });
+      
+      if (editorDoc?.id === savedDoc.id) {
+          setEditorDoc(savedDoc);
       }
+      
+      // If it was a reply, clear it
+      if (replyToDoc) setReplyToDoc(null);
 
-       if (updatedDoc) {
-         setDocuments(docs => {
-           const exists = docs.some(d => d.id === updatedDoc!.id);
-           return exists ? docs.map(d => d.id === updatedDoc!.id ? updatedDoc! : d) : [updatedDoc!, ...docs];
-         });
-      } else {
-        fetchDocuments(token, activeProjectId).then(setDocuments).catch(() => {});
-      }
-    } catch (err: any) {
-       if (err.code === 401 || err.code === 403) return handleLogout('Sesión expirada');
-       addToast(err.message || 'No se pudo guardar el documento', 'error');
-    } finally {
+      // Close editor
       setIsEditorOpen(false);
       setEditorDoc(null);
-      setReplyToDoc(null);
-    }
   };
 
   const handleSignatureConfirm = async (method: SignatureMethod, _signatureImage?: string) => {
@@ -546,6 +478,8 @@ const App: React.FC = () => {
                     existingDoc={editorDoc}
                     userRole={currentUser.role === 'SUPER_ADMIN' ? 'DIRECTOR' : currentUser.role as any}
                     token={token || undefined} // Pass token
+                    currentUserName={currentUser?.fullName}
+                    currentUserId={currentUser?.id}
                     onCancel={() => {
                         setIsEditorOpen(false);
                         setEditorDoc(null);
