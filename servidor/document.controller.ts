@@ -1431,7 +1431,19 @@ router.post(
       }
 
       // Generate radicado atomically
-      const radicadoCode = await generateRadicado(doc.projectId, doc.series as any, doc.type === 'INBOUND' ? 'IN' : 'OUT');
+      let typeCode: 'IN' | 'OUT' | 'INT';
+      if (doc.type === DocumentType.INBOUND) {
+        typeCode = 'IN';
+      } else if (doc.type === DocumentType.OUTBOUND) {
+        typeCode = 'OUT';
+      } else if (doc.type === DocumentType.INTERNAL) {
+        typeCode = 'INT';
+      } else {
+        // Fallback for unknown types, though schema should prevent this
+        typeCode = 'OUT';
+      }
+
+      const radicadoCode = await generateRadicado(doc.projectId, doc.series as any, typeCode);
 
       const signer = await prisma.user.findUnique({ where: { id: signerId }, select: { signatureImage: true, fullName: true, role: true } });
       
