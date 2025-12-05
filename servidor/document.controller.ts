@@ -361,7 +361,7 @@ router.put(
           contentType: file.mimetype,
         });
         contentUrl = stored.url;
-      } else if (doc.type === DocumentType.OUTBOUND || doc.type === 'OUTBOUND') {
+      } else if (doc.type === DocumentType.OUTBOUND) {
          // REGENERATE DOCX
          try {
              console.log("Regenerating DOCX for:", finalTitle);
