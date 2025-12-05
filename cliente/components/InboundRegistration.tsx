@@ -1,7 +1,7 @@
-
 import React, { useState } from 'react';
-import { Project, SeriesType, ReceptionMedium } from '../types';
+import { Project, SeriesType, ReceptionMedium, Document } from '../types';
 import ContactSelector from './ContactSelector';
+import DocumentSelector from './DocumentSelector';
 import { analyzeDocumentWithAI } from '../services/googleVisionService';
 
 const LONG_TEXT_LIMIT = 5000;
@@ -9,11 +9,12 @@ const MEDIUM_TEXT_LIMIT = 1000;
 
 interface InboundRegistrationProps {
   activeProject: Project;
+  existingDocuments: Document[];
   onCancel: () => void;
   onSave: (data: any) => void;
 }
 
-const InboundRegistration: React.FC<InboundRegistrationProps> = ({ activeProject, onCancel, onSave }) => {
+const InboundRegistration: React.FC<InboundRegistrationProps> = ({ activeProject, existingDocuments, onCancel, onSave }) => {
   const [medium, setMedium] = useState<ReceptionMedium>('PHYSICAL');
   
   const [file, setFile] = useState<File | null>(null);
@@ -27,6 +28,10 @@ const InboundRegistration: React.FC<InboundRegistrationProps> = ({ activeProject
   const [externalReference, setExternalReference] = useState('');
   const [senderName, setSenderName] = useState('');
   const [subject, setSubject] = useState('');
+  const [requiresResponse, setRequiresResponse] = useState(false);
+  const [deadline, setDeadline] = useState(new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10));
+  const [replyToId, setReplyToId] = useState<string | null>(null);
+  const [replyToRadicado, setReplyToRadicado] = useState('');
 
   const handleFileDrop = (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault();
@@ -101,8 +106,12 @@ const InboundRegistration: React.FC<InboundRegistrationProps> = ({ activeProject
                   sender: senderName,
                   externalReference,
                   documentDate,
-                  template: 'NONE'
+                  template: 'NONE',
+                  deadline: requiresResponse ? deadline : undefined
               },
+              requiresResponse,
+              replyToId,
+              replyToRadicado,
               file
           });
       }, 1500);
@@ -294,6 +303,8 @@ const InboundRegistration: React.FC<InboundRegistrationProps> = ({ activeProject
                         value={senderName}
                         onChange={setSenderName}
                         onSelect={(c) => setSenderName(c.entityName)}
+                        allowManual={true}
+                        onManualAdd={(val) => setSenderName(val)}
                     />
                 </div>
 
@@ -307,6 +318,47 @@ const InboundRegistration: React.FC<InboundRegistrationProps> = ({ activeProject
                         maxLength={LONG_TEXT_LIMIT}
                         className="w-full p-3 border border-slate-200 rounded-lg bg-slate-50 text-sm focus:bg-white focus:border-blue-400 outline-none transition-all resize-none"
                     />
+                </div>
+
+                <div className="bg-yellow-50 border border-yellow-100 rounded-lg p-4 space-y-3">
+                    <label className="flex items-center gap-3 cursor-pointer group">
+                        <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${requiresResponse ? 'bg-yellow-500 border-yellow-600' : 'bg-white border-slate-300 group-hover:border-yellow-400'}`}>
+                            {requiresResponse && <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                        </div>
+                        <input 
+                            type="checkbox" 
+                            className="hidden" 
+                            checked={requiresResponse} 
+                            onChange={(e) => setRequiresResponse(e.target.checked)} 
+                        />
+                        <span className="text-sm font-bold text-slate-700">¿Requiere Respuesta?</span>
+                    </label>
+                    
+                    {requiresResponse && (
+                        <div className="ml-8 animate-fade-in">
+                            <label className="block text-xs font-bold text-yellow-700 uppercase mb-1">Fecha Límite de Respuesta</label>
+                            <input 
+                                type="date"
+                                value={deadline}
+                                onChange={(e) => setDeadline(e.target.value)}
+                                className="w-full bg-white border border-yellow-300 rounded-lg text-sm p-2 outline-none focus:ring-2 focus:ring-yellow-500/20 text-slate-700 font-medium"
+                            />
+                            <p className="text-[10px] text-yellow-600 mt-1">
+                                Plazo sugerido: 15 días hábiles.
+                            </p>
+                        </div>
+                    )}
+                </div>
+
+                <div>
+                    <DocumentSelector
+                        documents={existingDocuments}
+                        value={replyToRadicado}
+                        onChange={setReplyToRadicado}
+                        label="Responder a Radicado (Opcional)"
+                        placeholder="Buscar por Radicado o Asunto..."
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">Si este documento responde a uno existente, selecciónelo de la lista o escriba el radicado.</p>
                 </div>
 
             </div>

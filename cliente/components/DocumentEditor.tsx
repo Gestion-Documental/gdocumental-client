@@ -553,7 +553,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
                   'Content-Type': 'application/json',
                   'Authorization': `Bearer ${token}`
               },
-              body: JSON.stringify({ documentId: existingDoc?.id, signaturePin, signatureMethod: method, signatureImage })
+              body: JSON.stringify({ documentId: activeDoc?.id || existingDoc?.id, signaturePin, signatureMethod: method, signatureImage })
           });
           if (!res.ok) {
               const err = await res.json();
@@ -924,6 +924,12 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({ activeProject, replyToD
                             className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-indigo-700 flex items-center gap-1"
                         >
                             <span>📤</span> Enviar
+                        </button>
+                        <button 
+                            onClick={() => setShowRadicationModal(true)}
+                            className="bg-purple-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-purple-700 flex items-center gap-1"
+                        >
+                            <span>✍️</span> Radicar
                         </button>
                     </>
                 )}

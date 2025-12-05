@@ -23,9 +23,10 @@ interface DossierViewProps {
   apiBaseUrl?: string;
   onChangeStatus?: (status: DocumentStatus) => void;
   availableUsers?: { id: string; fullName: string; role: string }[];
+  onReply?: (docId: string) => void;
 }
 
-const DossierView: React.FC<DossierViewProps> = ({ document, userRole, currentUserName, onClose, onRegisterDelivery, onAssignLocation, onAssignUser, onVoidDocument, onDispatchUpdate, onDeleteAttachment, apiBaseUrl, onChangeStatus, availableUsers }) => {
+const DossierView: React.FC<DossierViewProps> = ({ document, userRole, currentUserName, onClose, onRegisterDelivery, onAssignLocation, onAssignUser, onVoidDocument, onDispatchUpdate, onDeleteAttachment, apiBaseUrl, onChangeStatus, availableUsers, onReply }) => {
   const [isZipping, setIsZipping] = useState(false);
   const [showLabelGenerator, setShowLabelGenerator] = useState(false);
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
@@ -483,12 +484,23 @@ const DossierView: React.FC<DossierViewProps> = ({ document, userRole, currentUs
 
 
                 <div className="space-y-3 mt-auto">
-                    {document.status === DocumentStatus.RADICADO && !isVoid && userRole === 'DIRECTOR' && (
+                    {document.status === DocumentStatus.RADICADO && !isVoid && (userRole === 'DIRECTOR' || userRole === 'ENGINEER') && (
                         <button
                           onClick={() => setShowEmailModal(true)}
                           className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold shadow-md flex items-center justify-center gap-2 transition-all"
                         >
                             📧 Enviar por Email
+                        </button>
+                    )}
+
+                    {/* Reply Button */}
+                    {!isVoid && document.type === 'INBOUND' && onReply && (
+                        <button
+                            onClick={() => onReply(document.id)}
+                            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-bold shadow-md flex items-center justify-center gap-2 transition-all"
+                        >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg>
+                            Responder
                         </button>
                     )}
                     

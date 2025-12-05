@@ -12,11 +12,11 @@ type TypeCode = 'IN' | 'OUT';
  */
 export async function generateRadicado(projectId: string, series: SeriesCode, type: TypeCode): Promise<string> {
   const radicado = await prisma.$transaction(async (tx) => {
-    // 1) Lock/create sequence for this project + series
-    const sequence = await tx.sequence.upsert({
-      where: { projectId_series: { projectId, series } },
+    // 1) Lock/create sequence for this project + series + type
+    const sequence = await tx.radicadoSequence.upsert({
+      where: { projectId_series_type: { projectId, series, type } },
       update: { value: { increment: 1 } },
-      create: { projectId, series, value: 1 },
+      create: { projectId, series, type, value: 1 },
       select: { value: true }
     });
 

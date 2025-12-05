@@ -304,7 +304,7 @@ router.put(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const { title, content, series, retentionDate, isPhysicalOriginal, physicalLocationId } = req.body;
+      const { title, content, series, retentionDate, isPhysicalOriginal, physicalLocationId, replyToId } = req.body;
       const file = req.file;
 
       let metadata = req.body.metadata;
@@ -502,6 +502,7 @@ router.put(
           retentionDate: retentionDate ?? doc.retentionDate,
           isPhysicalOriginal: isPhysicalOriginal ? String(isPhysicalOriginal) === 'true' : doc.isPhysicalOriginal, // Handle string from FormData
           physicalLocationId: physicalLocationId ?? doc.physicalLocationId,
+          replyToId: replyToId ?? doc.replyToId,
           updatedAt: new Date(),
         },
       });
@@ -857,7 +858,7 @@ router.post(
   upload.single('file'),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { projectId, series, title, metadata: metadataStr, requiresResponse, deadline, receptionMedium } = req.body;
+      const { projectId, series, title, metadata: metadataStr, requiresResponse, deadline, receptionMedium, replyToId, replyToRadicado } = req.body;
       const userId = req.user!.id;
       const file = req.file;
 
@@ -866,6 +867,15 @@ router.post(
         metadata = typeof metadataStr === 'string' ? JSON.parse(metadataStr) : metadataStr || {};
       } catch (e) {
         metadata = {};
+      }
+
+      // Resolve replyToRadicado if provided
+      let finalReplyToId = replyToId;
+      if (replyToRadicado && !finalReplyToId) {
+          const parentDoc = await prisma.document.findUnique({ where: { radicadoCode: replyToRadicado } });
+          if (parentDoc) {
+              finalReplyToId = parentDoc.id;
+          }
       }
 
       // OCR Processing
@@ -928,6 +938,7 @@ router.post(
               registeredBy: userId,
           },
           authorId: userId,
+          replyToId: finalReplyToId || null,
           createdAt: new Date(),
         },
       });
@@ -967,7 +978,7 @@ router.post(
   checkRole([UserRole.ENGINEER, UserRole.DIRECTOR]),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { projectId, type, series, metadata, title, content, retentionDate, isPhysicalOriginal, physicalLocationId } = req.body;
+      const { projectId, type, series, metadata, title, content, retentionDate, isPhysicalOriginal, physicalLocationId, replyToId } = req.body;
 
       if (!projectId || !type || !series) {
         return res.status(400).json({ error: 'Faltan campos obligatorios (projectId, type, series)' });
@@ -998,6 +1009,7 @@ router.post(
           retentionDate,
           isPhysicalOriginal: !!isPhysicalOriginal,
           physicalLocationId,
+          replyToId: replyToId || null,
           authorId: req.user!.id,
           createdAt: new Date()
         }
@@ -1365,58 +1377,54 @@ router.post(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { documentId, signaturePin } = req.body;
+      console.log('[Sign] Request received:', { documentId, userId: req.user!.id, role: req.user!.role });
+      
       const userId = req.user!.id;
       const userRole = req.user!.role;
 
       // Fetch doc first to check authorization
+      console.log('[Sign] Fetching document...');
       const doc = await prisma.document.findUnique({
         where: { id: documentId },
-        select: { id: true, projectId: true, series: true, status: true, type: true, metadata: true }
+        select: { id: true, projectId: true, series: true, status: true, type: true, metadata: true, contentUrl: true, assignedToUserId: true }
       });
       if (!doc) return res.status(404).json({ error: 'Document not found' });
 
+      // 1. Verify PIN for ALL users
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { signaturePin: true, role: true }
+      });
+
+      if (!user || !user.signaturePin || user.signaturePin !== signaturePin) {
+        return res.status(400).json({ error: 'PIN de firma inválido' });
+      }
+
       let signerId = userId;
 
-      // Authorization Logic
+      // 2. Authorization Logic
       if (userRole === UserRole.ENGINEER) {
           const meta = doc.metadata as any;
-          if (!meta?.signatureAuthorized) {
-              return res.status(403).json({ error: 'No está autorizado para firmar este documento.' });
-          }
-          if (doc.status !== DocumentStatus.PENDING_SCAN) { // Must be Approved
-              return res.status(400).json({ error: 'El documento debe estar APROBADO para ser radicado por el Ingeniero.' });
-          }
-          // Use the Director who authorized it (stored in metadata or assume author? No, author is Engineer)
-          // We should have stored signerId in metadata. If not, we might fail or default to... ?
-          // In handleApproveAndReturn we didn't store signerId, only signatureAuthorized.
-          // But we can assume the Director who approved it is the one who authorized it?
-          // Actually, we don't track who approved it in metadata easily unless we look at workflow.
-          // Let's assume we need to fetch the Director.
-          // For now, let's use the `assignedToUserId` if it was assigned? No, it's assigned to Engineer now.
-          // We should have stored signerId. I will update handleApproveAndReturn to store it.
-          // But for now, let's try to find the Director from the project? Or just fail if not found.
           
-          if (meta.signerId) {
-              signerId = meta.signerId;
-          } else {
-             // Fallback: Find a Director? No, that's unsafe.
-             // We will update the frontend to send signerId.
-             // For now, let's check if we can get it from workflow?
-             // Too complex. I will update frontend to save signerId.
-             return res.status(400).json({ error: 'Falta información del firmante autorizado.' });
+          // Case A: Authorized Signature (on behalf of Director)
+          if (meta?.signatureAuthorized && doc.status === DocumentStatus.PENDING_SCAN) {
+               if (meta.signerId) {
+                   signerId = meta.signerId;
+               } else {
+                   return res.status(400).json({ error: 'Falta información del firmante autorizado.' });
+               }
+          } 
+          // Case B: Self-Signing (Engineer signing their own doc)
+          else {
+               // Must be in DRAFT
+               if (doc.status !== DocumentStatus.DRAFT) {
+                    return res.status(400).json({ error: 'Para firmar a su nombre, el documento debe estar en Borrador.' });
+               }
+               signerId = userId;
           }
 
       } else {
           // Director Logic
-          const user = await prisma.user.findUnique({
-            where: { id: userId },
-            select: { signaturePin: true, role: true }
-          });
-
-          if (!user || !user.signaturePin || user.signaturePin !== signaturePin) {
-            return res.status(400).json({ error: 'PIN de firma inválido' });
-          }
-          
           if (doc.status !== DocumentStatus.DRAFT && doc.status !== DocumentStatus.PENDING_APPROVAL) {
             return res.status(400).json({ error: 'Documento no elegible para firma (debe estar en Borrador o Por Aprobar)' });
           }

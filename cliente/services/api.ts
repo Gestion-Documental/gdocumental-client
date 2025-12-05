@@ -177,11 +177,29 @@ export async function createInboundDocument(token: string, payload: {
   requiresResponse?: boolean;
   deadline?: string;
   receptionMedium?: string;
+  replyToId?: string | null;
+  replyToRadicado?: string;
+  file?: File | null;
 }) {
+  const formData = new FormData();
+  formData.append('projectId', payload.projectId);
+  formData.append('series', payload.series);
+  formData.append('title', payload.title);
+  if (payload.metadata) formData.append('metadata', JSON.stringify(payload.metadata));
+  if (payload.requiresResponse) formData.append('requiresResponse', 'true');
+  if (payload.deadline) formData.append('deadline', payload.deadline);
+  if (payload.receptionMedium) formData.append('receptionMedium', payload.receptionMedium);
+  if (payload.replyToId) formData.append('replyToId', payload.replyToId);
+  if (payload.replyToRadicado) formData.append('replyToRadicado', payload.replyToRadicado);
+  if (payload.file) formData.append('file', payload.file);
+
   const res = await fetch(`${API_URL}/documents/inbound`, {
     method: 'POST',
-    headers: authHeader(token),
-    body: JSON.stringify(payload),
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      // Do not set Content-Type, let browser set it with boundary
+    },
+    body: formData,
   });
   await ensureAuth(res as any);
   if (!res.ok) {

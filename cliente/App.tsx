@@ -223,14 +223,15 @@ const App: React.FC = () => {
           series: data.series,
           title: data.title,
           metadata: data.metadata,
-          requiresResponse: true,
+          requiresResponse: data.requiresResponse,
           deadline: data.metadata?.deadline || data.metadata?.documentDate || defaultDeadline,
           receptionMedium: data.receptionMedium,
+          replyToId: data.replyToId,
+          replyToRadicado: data.replyToRadicado,
+          file: data.file
         };
         const created = await createInboundDocument(token, payload);
-        if (data.file) {
-          await uploadAttachment(token, created.id, data.file);
-        }
+        // File is now uploaded within createInboundDocument
         const refreshed = await fetchDocument(token, created.id);
         setDocuments([refreshed, ...documents]);
         setIsInboundRegistering(false);
@@ -411,6 +412,16 @@ const App: React.FC = () => {
       return <UserProfile user={currentUser} token={token || ''} onBack={() => setCurrentView('DASHBOARD')} onUpdate={(u) => setCurrentUser(u)} />;
   }
 
+  const handleReply = (docId: string) => {
+      const doc = documents.find(d => d.id === docId);
+      if (doc) {
+          setReplyToDoc(doc);
+          setEditorDoc(null); // New draft
+          setIsEditorOpen(true);
+          setDossierDoc(null);
+      }
+  };
+
   const renderContent = () => {
     console.log("App.tsx: renderContent called. State:", {
         isInboundRegistering,
@@ -424,6 +435,7 @@ const App: React.FC = () => {
         return (
             <InboundRegistration 
                 activeProject={activeProject}
+                existingDocuments={projectDocuments}
                 onCancel={() => setIsInboundRegistering(false)}
                 onSave={handleSaveInbound}
             />
@@ -452,6 +464,7 @@ const App: React.FC = () => {
             apiBaseUrl={API_URL}
             onChangeStatus={(status) => handleChangeStatus(dossierDoc.id, status)}
             availableUsers={users}
+            onReply={handleReply}
             onAssignUser={async (docId, userId) => {
                 if (!token) return;
                 try {

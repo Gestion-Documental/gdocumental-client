@@ -105,7 +105,7 @@ model Project {
 
   // Relations
   documents    Document[]
-  sequences    Sequence[]
+  sequences    RadicadoSequence[]
   contractModifications ContractModification[]
   drawings     Drawing[]
   controlPoints ControlPoint[]
@@ -159,6 +159,11 @@ model Document {
   physicalLocationId String?
   physicalLocation   PhysicalArchive? @relation(fields: [physicalLocationId], references: [id], onDelete: SetNull)
 
+  // Threading / Responses
+  replyToId         String?
+  replyTo           Document?        @relation("DocumentResponses", fields: [replyToId], references: [id], onDelete: SetNull)
+  responses         Document[]       @relation("DocumentResponses")
+
   workflows         Workflow[]
   documentSignatureLogs DocumentSignatureLog[]
   attachments       Attachment[]
@@ -191,10 +196,11 @@ model Workflow {
 }
 
 // Sequence table to guarantee atomic radicado counters per project + series
-model Sequence {
+model RadicadoSequence {
   id        String         @id @default(cuid())
   projectId String
   series    DocumentSeries
+  type      String         @default("OUT") // IN or OUT
   value     Int            @default(0)
 
   project   Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -202,7 +208,8 @@ model Sequence {
   createdAt DateTime       @default(now())
   updatedAt DateTime       @default(now())
 
-  @@unique([projectId, series], name: "projectId_series")
+  @@unique([projectId, series, type], name: "projectId_series_type")
+  @@index([projectId])
 }
 
 model LogEntry {

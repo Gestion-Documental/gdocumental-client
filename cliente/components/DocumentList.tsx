@@ -576,6 +576,18 @@ const DocumentList: React.FC<DocumentListProps> = ({
                                     {doc.metadata.destination}
                                   </span>
                                 )}
+                                {doc.metadata?.requiresResponse && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 border border-yellow-200 font-bold" title="Requiere Respuesta">
+                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                        Resp. Pendiente
+                                    </span>
+                                )}
+                                {doc.replyToId && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-100" title="Es respuesta a otro documento">
+                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg>
+                                        Hilo
+                                    </span>
+                                )}
                             </div>
                         </td>
                         <td className="px-6 py-4 align-top">

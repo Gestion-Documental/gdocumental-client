@@ -21,3 +21,6 @@ yarn-error.log*
 
 # Corrupt/Backup folders
 node_modules_corrupt
+
+# Uploads
+servidor/uploads
